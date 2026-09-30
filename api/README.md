@@ -14,6 +14,15 @@ python -m uvicorn api.app:app --port 8000 --app-dir .
 Jaringan (8.213 stop, 250 rute) dimuat **sekali** saat startup (±8 dtk)
 dan dipakai ulang semua request.
 
+Frontend React (Fase B.2) di `web/` — proxy `/api` & `/maps` ke :8000,
+port dev **5199** (5173 dipakai proyek lain di mesin ini):
+```powershell
+cd web
+npm install
+npm run dev
+# buka http://localhost:5199
+```
+
 ## Endpoint
 
 | Method | Path | Fungsi |
@@ -25,6 +34,7 @@ dan dipakai ulang semua request.
 | GET | `/api/ridership?mode=&period_type=` | Series penumpang (BPS, label `historis`) |
 | POST | `/api/route` | Cari rute A→B |
 | POST | `/api/rag` | Retrieval dokumen (hybrid + RRF) dengan sitasi |
+| GET | `/maps/<file>` | Peta resmi galeri (static mount `dashboard/maps/`) — dipakai tab "Peta Resmi" frontend |
 
 ### POST /api/route
 

@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "pipelines"))
 
 from fastapi import FastAPI, HTTPException, Query  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 from db import connect  # noqa: E402
@@ -102,6 +103,9 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="JPTI API", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
+
+# Peta resmi (galeri) — satu origin dgn API (frontend proxy /maps ke sini)
+app.mount("/maps", StaticFiles(directory=ROOT / "dashboard" / "maps"), name="maps")
 
 
 # ---------- helper ----------
