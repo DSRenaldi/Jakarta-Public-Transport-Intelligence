@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { getRidership } from '../api.js'
-import { MODE_COLORS } from './Planner.jsx'
+import { MODE_COLORS } from '../lib.js'
 
 const MODES = ['MRT', 'KRL', 'LRT', 'BRT']
 const MODE_LABEL = { MRT: 'MRT Jakarta', KRL: 'KRL Commuter Line', LRT: 'LRT Jakarta & Jabodebek', BRT: 'TransJakarta' }

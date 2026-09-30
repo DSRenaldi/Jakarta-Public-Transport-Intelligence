@@ -5,23 +5,7 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { searchStops, findRoute } from '../api.js'
-
-export const MODE_COLORS = {
-  MRT: '#1E88E5',
-  KRL: '#0D47A1',
-  LRT: '#00897B',
-  BRT: '#F9A825',
-}
-const WALK_COLOR = '#7d8590'
-
-export function fmtTime(sec) {
-  sec = Math.max(0, Math.round(sec))
-  const h = Math.floor(sec / 3600)
-  const m = Math.round((sec % 3600) / 60)
-  if (h > 0) return m > 0 ? `${h} j ${m} mnt` : `${h} j`
-  if (m > 0) return `${m} mnt`
-  return `${sec} dtk`
-}
+import { MODE_COLORS, WALK_COLOR, fmtTime } from '../lib.js'
 
 const MODES = ['MRT', 'KRL', 'LRT', 'BRT']
 const PREFS = [
