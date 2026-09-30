@@ -48,6 +48,9 @@ Body:
   - `ok` — rute lengkap (segments `ride`/`walk`, waktu, tarif, transfer)
   - `ambiguous` — nama tidak eksak + banyak kandidat → UI tampilkan pilihan
   - `no_route` — dua stop tidak terhubung
+- Field segmen `ride`: `mode`, `line_id`, `line` (nama lintas), **`corridor`**
+  (kode koridor GTFS `route_short_name` — hanya BRT, mis. `1`, `12B`, `S21`;
+  `null` utk moda lain), `travel_sec`, `wait_sec`, `fare`.
 - `disclaimer`: waktu rail = **proksi**, BRT dari jadwal GTFS, tarif flat minimum.
 
 ### POST /api/rag

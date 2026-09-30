@@ -116,13 +116,30 @@ def _stop_brief(net: Network, sid: str) -> dict:
             "lat": s.lat, "lon": s.lon}
 
 
+def _line_info(net: Network, line_id: str | None) -> tuple[str, str | None]:
+    """(nama lintas, kode koridor).
+
+    display_name BRT berbentuk "KODE — nama" (kode koridor GTFS route_short_name,
+    mis. "13A", "B01", "TJ2"); moda lain display = canonical → koridor None.
+    """
+    name = net.line_name.get(line_id, line_id or "?")
+    disp = net.line_display.get(line_id)
+    corridor = None
+    if disp and disp != name:
+        prefix, sep, _rest = disp.partition(" — ")
+        if sep and prefix.strip():
+            corridor = prefix.strip()
+    return name, corridor
+
+
 def _serialize_segment(net: Network, seg: dict) -> dict:
     if seg["type"] == "transfer":
         return {"type": "walk", "from": _stop_brief(net, seg["from"]),
                 "to": _stop_brief(net, seg["to"]), "walk_sec": seg["walk_sec"]}
     line_id = seg.get("line")
+    line, corridor = _line_info(net, line_id)
     return {"type": "ride", "mode": seg["mode"], "line_id": line_id,
-            "line": net.line_name.get(line_id, line_id or "?"),
+            "line": line, "corridor": corridor,
             "from": _stop_brief(net, seg["from"]),
             "to": _stop_brief(net, seg["to"]),
             "travel_sec": seg["travel_sec"], "wait_sec": seg["wait_sec"],

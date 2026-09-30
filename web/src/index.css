@@ -225,7 +225,15 @@ select.mode-select:focus, input.stop-input:focus, input.rag-input:focus, .btn:fo
 .seg:last-child::before { display: none; }
 .seg-dot { width: 14px; height: 14px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; border: 2px solid var(--surface); box-shadow: 0 0 0 1.5px currentColor; }
 .seg-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; flex: 1; }
-.seg-kind { font-weight: 600; font-size: 14px; }
+.seg-kind { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.seg-corridor {
+  font-size: 12.5px;
+  background: #f1f3f5;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 6px;
+  letter-spacing: 0.3px;
+}
 .seg-route { color: var(--sub); font-size: 13.5px; }
 .seg-time { margin-left: auto; color: var(--sub); font-size: 13px; white-space: nowrap; }
 

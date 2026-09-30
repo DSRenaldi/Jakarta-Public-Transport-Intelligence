@@ -276,6 +276,7 @@ export default function Planner() {
                     <div className="seg-body">
                       <span className="seg-kind">
                         <span className="mode-badge" style={badgeStyle(s.mode)}>{s.mode}</span>
+                        {s.corridor && <b className="seg-corridor">{s.corridor}</b>}
                         {s.line}
                       </span>
                       <span className="seg-route">{s.from.name} → {s.to.name}</span>

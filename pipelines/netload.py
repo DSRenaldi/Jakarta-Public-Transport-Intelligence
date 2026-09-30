@@ -41,8 +41,12 @@ def load_network(conn=None) -> Network:
         net.add_stop(Stop(sid, mode, name, lat, lon))
 
     # ---------- nama line utk tampilan ----------
-    cur.execute("SELECT line_id, canonical_name FROM lines")
-    net.line_name = dict(cur.fetchall())
+    cur.execute("SELECT line_id, canonical_name, display_name FROM lines")
+    net.line_name = {}
+    net.line_display = {}
+    for line_id, canon, disp in cur.fetchall():
+        net.line_name[line_id] = canon
+        net.line_display[line_id] = disp or canon
 
     # ---------- tarif flat per moda (proxy: harga minimum POSITIF) ----------
     cur.execute("""

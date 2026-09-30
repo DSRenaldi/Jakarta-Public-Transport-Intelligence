@@ -97,6 +97,8 @@ class Network:
         self.mode_fare: dict[str, int] = {}
         self.mode_headway: dict[str, int] = {}
         self.line_name: dict[str, str] = {}
+        # display_name ( utk BRT memuat kode koridor, mis "13A — Ragunan - Blok M")
+        self.line_display: dict[str, str] = {}
 
     def add_stop(self, s: Stop):
         self.stops[s.stop_id] = s
