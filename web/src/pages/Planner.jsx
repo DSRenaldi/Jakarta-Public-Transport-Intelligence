@@ -5,7 +5,7 @@ import {
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { searchStops, findRoute } from '../api.js'
-import { MODE_COLORS, WALK_COLOR, fmtTime } from '../lib.js'
+import { MODE_COLORS, WALK_COLOR, fmtTime, dispName } from '../lib.js'
 
 const MODES = ['MRT', 'KRL', 'LRT', 'BRT']
 const PREFS = [
@@ -17,14 +17,15 @@ const PREFS = [
 
 // ---------- input stasiun dengan autocomplete ----------
 function StopInput({ label, stop, onPick, mode, onModeChange, placeholder }) {
-  const [text, setText] = useState(stop ? stop.name : '')
+  const [text, setText] = useState(stop ? dispName(stop) : '')
   const [open, setOpen] = useState(false)
   const [cands, setCands] = useState([])
   const [busy, setBusy] = useState(false)
   const timer = useRef(null)
   const box = useRef(null)
+  const reqId = useRef(0)
 
-  useEffect(() => { if (stop) setText(stop.name) }, [stop])
+  useEffect(() => { if (stop) setText(dispName(stop)) }, [stop])
 
   useEffect(() => {
     const close = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false) }
@@ -32,21 +33,33 @@ function StopInput({ label, stop, onPick, mode, onModeChange, placeholder }) {
     return () => document.removeEventListener('mousedown', close)
   }, [])
 
+  // cari dgn penjaga respons basi (query lebih baru menang)
+  const doSearch = async (t, m) => {
+    const id = ++reqId.current
+    setBusy(true)
+    try {
+      const r = await searchStops(t, m || undefined, 7)
+      if (id === reqId.current) setCands(r.candidates)
+    } catch { if (id === reqId.current) setCands([]) }
+    finally { if (id === reqId.current) setBusy(false) }
+  }
+
   const onChange = (e) => {
     const t = e.target.value
     setText(t)
     if (stop) onPick(null)
     setOpen(true)
     clearTimeout(timer.current)
-    if (t.trim().length < 1) { setCands([]); return }
-    timer.current = setTimeout(async () => {
-      setBusy(true)
-      try {
-        const r = await searchStops(t.trim(), mode || undefined, 7)
-        setCands(r.candidates)
-      } catch { setCands([]) }
-      finally { setBusy(false) }
-    }, 250)
+    setCands([])  // buang kandidat query lama — jangan tampilkan hasil basi
+    if (!t.trim()) return
+    timer.current = setTimeout(() => doSearch(t.trim(), mode), 250)
+  }
+
+  const onFocus = () => {
+    setOpen(true)
+    // buka dropdown dgn teks ada tapi kandidat kosong (mis. pasca-query lama
+    // dibuang) -> cari ulang
+    if (text.trim() && cands.length === 0 && !busy) doSearch(text.trim(), mode)
   }
 
   return (
@@ -58,7 +71,7 @@ function StopInput({ label, stop, onPick, mode, onModeChange, placeholder }) {
           value={text}
           placeholder={placeholder}
           onChange={onChange}
-          onFocus={() => setOpen(true)}
+          onFocus={onFocus}
           aria-label={`${label} — nama stasiun/halte`}
         />
         <select
@@ -74,7 +87,7 @@ function StopInput({ label, stop, onPick, mode, onModeChange, placeholder }) {
       {stop && (
         <div className="stop-picked">
           <span className="mode-badge" style={badgeStyle(stop.mode)}>{stop.mode}</span>
-          {stop.name}
+          {dispName(stop)}
           <button type="button" className="clear-btn" title="Hapus pilihan" onClick={() => { onPick(null); setText('') }}>×</button>
         </div>
       )}
@@ -86,7 +99,15 @@ function StopInput({ label, stop, onPick, mode, onModeChange, placeholder }) {
             <li key={c.stop_id}>
               <button type="button" onClick={() => { onPick(c); setOpen(false) }}>
                 <span className="mode-badge" style={badgeStyle(c.mode)}>{c.mode}</span>
-                <span className="cand-name">{c.name}</span>
+                <span className="cand-name">{c.display || c.name}</span>
+                {c.aliases && c.aliases.length > 0 && (
+                  <span
+                    className="cand-alias"
+                    title={`juga dikenal: ${c.aliases.join(', ')}`}
+                  >
+                    juga dikenal: {c.aliases[0]}
+                  </span>
+                )}
                 <span className="cand-score">{c.score}</span>
               </button>
             </li>
@@ -147,14 +168,14 @@ function RouteMap({ result }) {
           radius={9}
           pathOptions={{ color: '#0f62fe', fillColor: '#0f62fe', fillOpacity: 1 }}
         >
-          <Tooltip permanent direction="top" offset={[0, -10]}>A · {result.origin.name}</Tooltip>
+          <Tooltip permanent direction="top" offset={[0, -10]}>A · {dispName(result.origin)}</Tooltip>
         </CircleMarker>
         <CircleMarker
           center={[result.dest.lat, result.dest.lon]}
           radius={9}
           pathOptions={{ color: '#da1e28', fillColor: '#da1e28', fillOpacity: 1 }}
         >
-          <Tooltip permanent direction="top" offset={[0, -10]}>B · {result.dest.name}</Tooltip>
+          <Tooltip permanent direction="top" offset={[0, -10]}>B · {dispName(result.dest)}</Tooltip>
         </CircleMarker>
         <FitBounds points={pts} />
       </MapContainer>
@@ -186,7 +207,7 @@ export default function Planner() {
     setError(null)
     lastReq.current = { o, d, pref }
     try {
-      const r = await findRoute({ origin: o.name, dest: d.name, prefer: pref, origin_mode: oMode, dest_mode: dMode })
+      const r = await findRoute({ origin: dispName(o), dest: dispName(d), prefer: pref, origin_mode: oMode, dest_mode: dMode })
       setResult(r)
     } catch (e) {
       setError(e.message)
@@ -205,7 +226,7 @@ export default function Planner() {
     const o = side === 'origin' ? stop : req.o
     const d = side === 'dest' ? stop : req.d
     setBusy(true)
-    findRoute({ origin: o.name, dest: d.name, prefer: req.pref, origin_mode: oMode, dest_mode: dMode })
+    findRoute({ origin: dispName(o), dest: dispName(d), prefer: req.pref, origin_mode: oMode, dest_mode: dMode })
       .then(setResult)
       .catch((e) => { setError(e.message); setResult(null) })
       .finally(() => setBusy(false))
@@ -253,7 +274,7 @@ export default function Planner() {
               </div>
               <div className="sum-item">
                 <span className="sum-val" style={{ fontSize: '15px', lineHeight: '28px' }}>
-                  {result.origin.name} → {result.dest.name}
+                  {dispName(result.origin)} → {dispName(result.dest)}
                 </span>
                 <span className="sum-lbl">{result.preference}</span>
               </div>
@@ -269,7 +290,7 @@ export default function Planner() {
                   {s.type === 'walk' ? (
                     <div className="seg-body">
                       <span className="seg-kind">Jalan kaki</span>
-                      <span className="seg-route">{s.from.name} → {s.to.name}</span>
+                      <span className="seg-route">{dispName(s.from)} → {dispName(s.to)}</span>
                       <span className="seg-time">±{fmtTime(s.walk_sec)}</span>
                     </div>
                   ) : (
@@ -279,7 +300,7 @@ export default function Planner() {
                         {s.corridor && <b className="seg-corridor">{s.corridor}</b>}
                         {s.line}
                       </span>
-                      <span className="seg-route">{s.from.name} → {s.to.name}</span>
+                      <span className="seg-route">{dispName(s.from)} → {dispName(s.to)}</span>
                       <span className="seg-time">
                         {fmtTime(s.travel_sec)}{s.wait_sec > 0 ? ` + tunggu ±${fmtTime(s.wait_sec)}` : ''}
                       </span>
@@ -311,7 +332,7 @@ export default function Planner() {
                 {cands.map((c) => (
                   <button key={c.stop_id} className="chip" onClick={() => pickAmbiguous(side, c)}>
                     <span className="mode-badge" style={badgeStyle(c.mode)}>{c.mode}</span>
-                    {c.name}
+                    {c.display || c.name}
                   </button>
                 ))}
               </div>
@@ -324,7 +345,7 @@ export default function Planner() {
         <section className="card">
           <h2>Tidak ada rute</h2>
           <p>
-            {result.origin.name} dan {result.dest.name} tidak terhubung dalam jaringan yang dimuat
+            {dispName(result.origin)} dan {dispName(result.dest)} tidak terhubung dalam jaringan yang dimuat
             ({result.message}). Coba nama lain atau moda berbeda.
           </p>
         </section>

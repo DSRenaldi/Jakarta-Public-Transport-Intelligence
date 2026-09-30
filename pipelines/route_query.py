@@ -34,34 +34,52 @@ def match_stops(net: Network, query: str, top: int = 5,
 
     `mode` (opsional) membatasi kandidat ke satu moda — penting utk nama
     stasiun yang sama di banyak moda (mis. "Dukuh Atas": BRT/MRT/LRT).
+
+    Pencocokan dilakukan terhadap `canonical_name`, `display_name` (nama
+    hak penamaan, mis. "Senayan Mastercard" = "Senayan"), dan `aliases`
+    (nama lama/populer dari stop_name_history, mis. "Sisingamangaraja" =
+    ASEAN Headquarter). Alias diberi skor satu tingkat di bawah nama resmi
+    agar nama resmi selalu menang bila keduanya cocok. Dedup per (moda,
+    nama) — stasiun bernama sama di moda berbeda tetap tampil sebagai
+    kandidat terpisah.
     """
     q = norm(query)
+
+    def _score(n: str) -> int:
+        if n == q:
+            return 100
+        if n.startswith(q):
+            return 80
+        if q in n:
+            return 60
+        qt, nt = set(q.split()), set(n.split())
+        if qt and len(qt & nt) == len(qt):
+            return 40
+        return 0
+
     scored = []
     for sid, s in net.stops.items():
         if mode is not None and s.mode != mode:
             continue
-        n = norm(s.name)
-        if n == q:
-            score = 100
-        elif n.startswith(q):
-            score = 80
-        elif q in n:
-            score = 60
-        else:
-            # token overlap
-            qt, nt = set(q.split()), set(n.split())
-            if qt and len(qt & nt) == len(qt):
-                score = 40
-            else:
-                continue
-        scored.append((score, len(n), sid))
+        names = {norm(s.name)}
+        if s.display_name:
+            names.add(norm(s.display_name))
+        best = max((_score(n) for n in names if n), default=0)
+        if best < 90:
+            # alias: eksak=90, prefix=70, substring=50, token=30
+            best = max(best, max((_score(a) - 10 for a in
+                                  (norm(x) for x in s.aliases) if a),
+                                 default=0))
+        if best:
+            scored.append((best, len(norm(s.name)), sid))
     scored.sort(key=lambda x: (-x[0], x[1]))
     seen, out = set(), []
     for score, _, sid in scored:
-        n = norm(net.stops[sid].name)
-        if n in seen:
+        s = net.stops[sid]
+        key = (s.mode, norm(s.name))
+        if key in seen:
             continue
-        seen.add(n)
+        seen.add(key)
         out.append((sid, score))
         if len(out) >= top:
             break

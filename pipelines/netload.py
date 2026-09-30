@@ -33,12 +33,28 @@ def load_network(conn=None) -> Network:
 
     # ---------- stops ----------
     cur.execute("""
-        SELECT stop_id_internal, mode_id, canonical_name,
+        SELECT stop_id_internal, mode_id, canonical_name, display_name,
                ST_Y(geometry), ST_X(geometry)
         FROM stops WHERE geometry IS NOT NULL
     """)
-    for sid, mode, name, lat, lon in cur.fetchall():
-        net.add_stop(Stop(sid, mode, name, lat, lon))
+    for sid, mode, name, disp, lat, lon in cur.fetchall():
+        net.add_stop(Stop(sid, mode, name, lat, lon, disp))
+
+    # ---------- alias (riwayat nama) per stop ----------
+    # nama lama resmi / nama populer dari stop_name_history; nama yang sama
+    # dgn nama kini (canonical atau display) dikecualikan — itu bukan alias.
+    cur.execute("""
+        SELECT stop_id_internal, name
+        FROM stop_name_history
+        WHERE name IS NOT NULL AND name <> ''
+        ORDER BY stop_id_internal, valid_from DESC NULLS LAST
+    """)
+    for sid, alias in cur.fetchall():
+        s = net.stops.get(sid)
+        if not s or alias == s.name or alias == (s.display_name or ""):
+            continue
+        if alias not in s.aliases:
+            s.aliases.append(alias)
 
     # ---------- nama line utk tampilan ----------
     cur.execute("SELECT line_id, canonical_name, display_name FROM lines")

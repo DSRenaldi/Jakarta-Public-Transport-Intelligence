@@ -65,6 +65,12 @@ class Stop:
     name: str
     lat: float | None
     lon: float | None
+    # nama berhak penamaan (naming rights) — ikut dicocokkan saat pencarian
+    display_name: str | None = None
+    # nama lama / nama populer (dari stop_name_history) — ikut dicocokkan,
+    # dengan skor satu tingkat di bawah nama resmi (mis. "Sisingamangaraja"
+    # untuk ASEAN Headquarter; "Bundaran HI" populer utk Bendungan Hilir)
+    aliases: list = field(default_factory=list)
 
 
 @dataclass

@@ -26,7 +26,7 @@ from routing import haversine_m  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / ".work"
-TODAY = "2026-09-29"
+TODAY = "2026-09-30"
 
 # =====================================================================
 # KONFIGURASI JARINGAN
@@ -157,17 +157,30 @@ MODES = [
     ("KRL", "KRL_COMMUTER", "KRL Commuter Line"),
 ]
 
-# ---- MRT Line 1 (11 stasiun, SRC-MRT-04 datum API 2026-09-29) ----
+# ---- MRT Line 1 (13 stasiun; SRC-MRT-04 API situs resmi datum 2026-09-29,
+#      divalidasi silang dgn OSM rel 9677669 fetch 2026-09-29: nama & urutan identik) ----
+# KOREKSI 30 Sep 2026 (report user: "Setiabudi Astra" & "Senayan Mastercard" tak
+#      ditemukan): list lama 11 stasiun (datum awal 29 Sep) berurutan SALAH
+#      (Fatmawati terposisi setelah "Blok A" — urutan rute fisik rusak) dan
+#      MELEWATI 2 stasiun: Setiabudi Astra & ASEAN Headquarter.
+# Fakta jaring saat ini (Sep 2026):
+#   - ujung utara = "Bundaran HI Bank Jakarta" (UTARA dari Dukuh Atas);
+#   - stasiun di lokasi Bundaran HI (lingkaran) bernama resmi "Bendungan Hilir";
+#   - MRT_NS_05 "Blok A" (OSM: "Blok A VISA") = stasiun lama "Kendal" (2019–2025);
+#   - MRT_NS_07 "ASEAN Headquarter" = stasiun baru (dibangun utk kawasan
+#     ASEAN Headquarters, antara Blok M dan Senayan).
 MRT_NS_STOPS = [
     ("Lebak Bulus", "Lebak Bulus Bank Syariah Indonesia"),
+    ("Fatmawati", "Fatmawati Indomaret"),
     ("Cipete Raya", "Cipete Raya TUKU"),
     ("Haji Nawi", None),
-    ("Blok A", None),
-    ("Fatmawati", "Fatmawati Indomaret"),
+    ("Blok A", "Blok A VISA"),
     ("Blok M", "Blok M BCA"),
+    ("ASEAN Headquarter", None),
     ("Senayan", "Senayan Mastercard"),
     ("Istora Mandiri", None),
     ("Bendungan Hilir", None),
+    ("Setiabudi Astra", None),
     ("Dukuh Atas", "Dukuh Atas BNI"),
     ("Bundaran HI", "Bundaran HI Bank Jakarta"),
 ]
@@ -418,8 +431,28 @@ def main():
         ("SRC-MRT-04", "Jadwal & daftar stasiun MRT Jakarta (situs resmi)",
          "https://jakartamrt.co.id/jadwal-keberangkatan", "auto (API CMS)",
          "proprietary (publik)", "kontinu", "live", TODAY,
-         "Situs kini SPA (Vite); data via API beweb-dev.jakartamrt.co.id/middleware/api/datum "
-         "(12 entitas stasiun: 11 Line 1 + Setiabudi Astra)"),
+         "Situs kini SPA (Vite); data via API beweb-dev.jakartamrt.co.id/middleware/api/datum. "
+         "30 Sep 2026: 13 stasiun Line 1 (Lebak Bulus BSI s.d. Bundaran HI Bank Jakarta); "
+         "divalidasi silang OSM rel 9677669 (nama & urutan identik)"),
+        ("SRC-MRT-08", "Wikipedia: Lin Utara-Selatan MRT Jakarta + artikel stasiun",
+         "https://id.wikipedia.org/wiki/Lin_Utara-Selatan_(MRT_Jakarta)",
+         "manual", "CC-BY-SA", "kontinu", "live", TODAY,
+         "Silang-cek urutan & kode stasiun (M01-M13), nama 2019, riwayat "
+         "hak penamaan (Setiabudi Astra: lelang Des 2018); akses 2026-09-30"),
+        ("SRC-MRT-09", "Profil resmi PT MRT Jakarta (halaman perusahaan) - daftar 13 stasiun Fase 1",
+         "https://www.linkedin.com/company/pt.-mrt-jakarta", "manual",
+         "proprietary (publik)", "kontinu", "live", TODAY,
+         "Nama stasiun per Maret 2019: 7 layang (Lebak Bulus, Fatmawati, Cipete Raya, "
+         "Haji Nawi, Blok A, Blok M, Sisingamangaraja) + 6 bawah tanah (Senayan, Istora, "
+         "Bendungan Hilir, Setiabudi, Dukuh Atas, Bundaran Hotel Indonesia); akses 2026-09-30"),
+        ("SRC-MRT-10", "Korroborsi media: pengumuman hak penamaan MRT Line 1",
+         "https://www.tempo.co/ekonomi/bank-dki-resmi-beli-hak-penamaan-stasiun-mrt-bundaran-hi-1296",
+         "manual", "publik", "kontinu", "live", TODAY,
+         "Tempo 2024-10-08 (Bundaran HI Bank DKI; Lebak Bulus Grab; total 13 st.); "
+         "Kompas 2026-08-11 (Blok A VISA; 10 st. sblmnya); VIVA 2025-05-09; "
+         "smartcity.jakarta.go.id 2024-09-19. Di baris stop_name_history, "
+         "valid_from = tanggal terverifikasi penggunaan nama (bukan awal pasti). "
+         "Akses 2026-09-30"),
         ("SRC-LRTJ-03", "Jadwal LRT Jakarta (situs resmi)",
          "https://www.lrtjakarta.co.id/schedule", "auto (embed JSON)",
          "proprietary (publik)", "kontinu", "live", TODAY,
@@ -478,6 +511,7 @@ def main():
                 CASE WHEN %s::text IS NULL THEN NULL ELSE ST_GeomFromEWKT(%s) END,
                 %s,%s,%s)
         ON CONFLICT (stop_id_internal) DO UPDATE SET
+            canonical_name=EXCLUDED.canonical_name,
             display_name=EXCLUDED.display_name, geometry=EXCLUDED.geometry,
             osm_node_id=EXCLUDED.osm_node_id
     """
@@ -530,6 +564,21 @@ def main():
     # =================================================================
     # MRT Line 1 (MRT_NS)
     # =================================================================
+    # bersihkan data MRT lama (idempoten; stop di-renumber 01..13, 30 Sep 2026)
+    cur.execute("""
+        DELETE FROM route_stops WHERE route_id IN (
+            SELECT route_id FROM routes WHERE line_id = 'MRT_NS')
+    """)
+    cur.execute("""
+        DELETE FROM transfers
+        WHERE from_stop_id IN (SELECT stop_id_internal FROM stops WHERE mode_id='MRT')
+           OR to_stop_id IN (SELECT stop_id_internal FROM stops WHERE mode_id='MRT')
+    """)
+    cur.execute("DELETE FROM routes WHERE line_id = 'MRT_NS'")
+    cur.execute("DELETE FROM stop_name_history WHERE stop_id_internal LIKE 'MRT_%'")
+    cur.execute("DELETE FROM stops WHERE mode_id='MRT'")
+    cur.execute("DELETE FROM line_geometries WHERE line_id = 'MRT_NS'")
+
     rel_lb = load_rel(9677669)  # Lebak Bulus -> Bundaran HI
     rel_bh = load_rel(9677670)  # Bundaran HI -> Lebak Bulus
     if rel_lb:
@@ -556,6 +605,33 @@ def main():
                   "inbound", 9677670)
         add_route_stops("MRT_NS_out", stop_ids)
         add_route_stops("MRT_NS_in", list(reversed(stop_ids)))
+
+        # Riwayat nama Line 1 (nama lama resmi + nama populer) — dasar
+        # pencarian alias & gabung data historis (konvensi data-dict §3).
+        # Baris "Bundaran HI" utk MRT_NS_10 = NAMA POPULER (lokasi stasiun
+        # di kawasan Bundaran HI, Karet Tengsin), BUKAN nama resmi; nama
+        # resmi "Bundaran HI" adalah MRT_NS_13 (ujung utara).
+        # valid_from = tanggal terverifikasi penggunaan nama (bukan
+        # dipastikan tanggal awal; lihat catatan SRC-MRT-07 di registry).
+        mrt_name_history = [
+            # (stop_id, nama, valid_from, valid_to, source_id)
+            ("MRT_NS_01", "Lebak Bulus Grab", "2024-10-08", None, "SRC-MRT-10"),
+            ("MRT_NS_07", "Sisingamangaraja", "2019-03-24", None, "SRC-MRT-09"),
+            ("MRT_NS_07", "ASEAN Headquarters", "2024-09-19", None, "SRC-MRT-10"),
+            ("MRT_NS_10", "Bundaran HI", "2019-03-24", None, "SRC-MRT-04"),
+            ("MRT_NS_11", "Setiabudi", "2019-03-24", None, "SRC-MRT-09"),
+            ("MRT_NS_13", "Bundaran Hotel Indonesia", "2019-03-24", None,
+             "SRC-MRT-09"),
+            ("MRT_NS_13", "Bundaran HI Bank DKI", "2024-10-08", None,
+             "SRC-MRT-10"),
+        ]
+        for sid, nm, vf, vt, src in mrt_name_history:
+            cur.execute("""
+                INSERT INTO stop_name_history
+                    (stop_id_internal, name, valid_from, valid_to, source_id)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT DO NOTHING
+            """, (sid, nm, vf, vt, src))
 
     # =================================================================
     # LRT Jakarta (LRTJ_KG_MRI)

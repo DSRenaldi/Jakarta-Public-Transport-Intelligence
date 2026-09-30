@@ -112,7 +112,10 @@ app.mount("/maps", StaticFiles(directory=ROOT / "dashboard" / "maps"), name="map
 
 def _stop_brief(net: Network, sid: str) -> dict:
     s = net.stops[sid]
-    return {"stop_id": s.stop_id, "name": s.name, "mode": s.mode,
+    disp = (s.display_name
+            if s.display_name and s.display_name != s.name else None)
+    return {"stop_id": s.stop_id, "name": s.name, "display": disp,
+            "aliases": s.aliases, "mode": s.mode,
             "lat": s.lat, "lon": s.lon}
 
 

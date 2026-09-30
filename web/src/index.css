@@ -202,6 +202,7 @@ select.mode-select:focus, input.stop-input:focus, input.rag-input:focus, .btn:fo
 }
 .cand button:hover { background: #f2f6fd; }
 .cand-name { flex: 1; }
+.cand-alias { color: var(--sub); font-size: 11px; margin-left: 8px; white-space: nowrap; }
 .cand-score { color: var(--sub); font-size: 12px; }
 .cand-busy { color: var(--sub); font-size: 13px; padding: 8px 9px; list-style: none; }
 
