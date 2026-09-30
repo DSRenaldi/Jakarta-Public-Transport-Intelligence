@@ -1,0 +1,18 @@
+# JPTI — dependencies Python (install ke .venv)
+# .\.venv\Scripts\activate && pip install -r requirements.txt
+
+# Fase 1 — fondasi data & dashboard historis
+requests>=2.31        # fetch BPS RSC action, dataset SDI
+pypdf>=4.0            # validasi/ekstrak PDF artefak
+pandas>=2.0           # processing data
+
+# Fase 2 — jaringan & routing
+psycopg>=3.1          # Postgres/PostGIS (DB transum_jakarta)
+shapely>=2.0          # geometri linestring/multilinestring rail
+playwright>=1.45      # verifikasi headless dashboard (chromium via playwright install)
+
+# Fase 3 — RAG dokumen
+numpy>=1.26           # cosine similarity sisi Python (pgvector tidak tersedia di Windows PG18)
+fastembed>=0.8        # embedding ONNX lokal (paraphrase-multilingual-MiniLM-L12-v2, 384 dim)
+pymupdf>=1.24         # render PDF peta ke PNG (galeri dashboard)
+fonttools>=4.50       # parsing font CFF Type1 saat ekstrak PDF (pypdf)

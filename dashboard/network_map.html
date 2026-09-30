@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JPTI — Peta Jaringan Jabodetabek (Peta Resmi per Moda)</title>
+<style>
+  :root { --ink:#14181f; --sub:#5b6572; --line:#e3e7ec; --bg:#f6f7f9; }
+  * { box-sizing:border-box }
+  body { margin:0; font:15px/1.55 system-ui,'Segoe UI',sans-serif;
+         color:var(--ink); background:var(--bg) }
+  header { background:var(--ink); color:#fff; padding:18px 28px }
+  header h1 { margin:0; font-size:19px; font-weight:650 }
+  header p { margin:4px 0 0; color:#aab3bf; font-size:13px }
+  nav { display:flex; gap:8px; flex-wrap:wrap; padding:14px 28px 0;
+         background:#fff; border-bottom:1px solid var(--line) }
+  .navbtn { border:1px solid var(--line); background:#fff; border-radius:999px;
+             padding:7px 16px; font-size:13.5px; cursor:pointer; color:var(--sub) }
+  .navbtn:hover { border-color:#9aa4b1 }
+  .navbtn.active { background:var(--ink); color:#fff; border-color:var(--ink) }
+  main { max-width:1180px; margin:0 auto; padding:22px 24px 60px }
+  section.tab { display:none }
+  section.tab.active { display:block }
+  h2 { font-size:20px; margin:6px 0 4px }
+  .note { background:#fff8e6; border:1px solid #f0dca0; color:#6b5310;
+           padding:10px 14px; border-radius:8px; font-size:13.5px }
+  .mapbox { background:#fff; border:1px solid var(--line); border-radius:12px;
+             padding:10px; margin-top:12px; text-align:center }
+  .mapbox img { max-width:100%; max-height:78vh; border-radius:6px;
+                 cursor:zoom-in; display:inline-block }
+  .meta { color:var(--sub); font-size:12.5px; margin-top:10px }
+  .meta a { color:#2456a6 }
+  .sub { margin:26px 0 10px; font-size:15px }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+           gap:12px }
+  .kor { margin:0; background:#fff; border:1px solid var(--line);
+          border-radius:10px; overflow:hidden }
+  .kor img { width:100%; height:150px; object-fit:cover; object-position:top;
+              cursor:zoom-in }
+  .kor figcaption { font-size:12.5px; padding:7px 10px; color:var(--sub) }
+  footer { text-align:center; color:var(--sub); font-size:12.5px;
+            padding:18px; border-top:1px solid var(--line) }
+  #zoomer { position:fixed; inset:0; background:rgba(10,12,16,.92);
+             display:none; place-items:center; z-index:99; cursor:zoom-out }
+  #zoomer.open { display:grid }
+  #zoomer img { max-width:96vw; max-height:96vh; box-shadow:0 8px 40px rgba(0,0,0,.5) }
+</style>
+</head>
+<body>
+<header>
+  <h1>JPTI &mdash; Peta Jaringan Jabodetabek</h1>
+  <p>Peta rute resmi per moda &middot; dibuat 29 September 2026 &middot;
+     MRT Jakarta, KRL, LRT Jakarta, LRT Jabodebek, TransJakarta</p>
+</header>
+<nav><button class="navbtn active" onclick="show(0)">Peta Integrasi</button><button class="navbtn" onclick="show(1)">KRL Commuter Line</button><button class="navbtn" onclick="show(2)">TransJakarta</button><button class="navbtn" onclick="show(3)">MRT Jakarta</button><button class="navbtn" onclick="show(4)">LRT Jakarta</button><button class="navbtn" onclick="show(5)">LRT Jabodebek</button></nav>
+<main>
+<section id="tab-0" class="tab active">
+  <h2>Peta Integrasi</h2>
+  <p class="note">Semua moda dalam satu peta, edisi terbaru (v26.08c). Klik utk memperbesar.</p>
+  <div class="mapbox"><img src="maps/fdtj_integrasi_2026_08c.png" alt="Peta Peta Integrasi"
+       loading="eager" onclick="zoom(this)"></div>
+  <p class="meta">Diakses: 2026-09-29</p>
+  
+</section>
+<section id="tab-1" class="tab" hidden>
+  <h2>KRL Commuter Line</h2>
+  <p class="note">Peta resmi KAI Commuter (kci.id), Jabodetabek & Merak. Stasiun Karet digarisabai = dinonaktifkan.</p>
+  <div class="mapbox"><img src="maps/krl_area0.png" alt="Peta KRL Commuter Line"
+       loading="lazy" onclick="zoom(this)"></div>
+  <p class="meta">Versi: terkini (diakses 2026-09-30) &middot; <a href="https://www.kci.id/perjalanan-krl/peta-rute (API /api/krl/routemap)" target="_blank" rel="noopener">Sumber</a> &middot; Diakses: 2026-09-29</p>
+  
+</section>
+<section id="tab-2" class="tab" hidden>
+  <h2>TransJakarta</h2>
+  <p class="note">Peta integrasi resmi TransJakarta + 14 koridor di bawahnya (peta per koridor terbaru, 2025-2026).</p>
+  <div class="mapbox"><img src="maps/tj_integrasi.jpg" alt="Peta TransJakarta"
+       loading="lazy" onclick="zoom(this)"></div>
+  <p class="meta">Versi: terkini (diakses 2026-09-30) &middot; <a href="https://transjakarta.co.id/peta-rute (smk.transjakarta.co.id)" target="_blank" rel="noopener">Sumber</a> &middot; Diakses: 2026-09-29</p>
+  <h3 class="sub">Koridor &mdash; peta rute resmi per koridor</h3><div class="grid"><figure class="kor"><img loading="lazy" src="maps/tj_kor1.jpg" alt="Peta koridor tj_kor1.jpg"><figcaption>Koridor r1</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor2.jpg" alt="Peta koridor tj_kor2.jpg"><figcaption>Koridor r2</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor3.jpg" alt="Peta koridor tj_kor3.jpg"><figcaption>Koridor r3</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor4.jpg" alt="Peta koridor tj_kor4.jpg"><figcaption>Koridor r4</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor5.jpg" alt="Peta koridor tj_kor5.jpg"><figcaption>Koridor r5</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor6.jpg" alt="Peta koridor tj_kor6.jpg"><figcaption>Koridor r6</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor7.jpg" alt="Peta koridor tj_kor7.jpg"><figcaption>Koridor r7</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor8.jpg" alt="Peta koridor tj_kor8.jpg"><figcaption>Koridor r8</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor9.jpg" alt="Peta koridor tj_kor9.jpg"><figcaption>Koridor r9</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor10.jpg" alt="Peta koridor tj_kor10.jpg"><figcaption>Koridor r10</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor11.jpg" alt="Peta koridor tj_kor11.jpg"><figcaption>Koridor r11</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor12.jpg" alt="Peta koridor tj_kor12.jpg"><figcaption>Koridor r12</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor13.jpg" alt="Peta koridor tj_kor13.jpg"><figcaption>Koridor r13</figcaption></figure><figure class="kor"><img loading="lazy" src="maps/tj_kor14.jpg" alt="Peta koridor tj_kor14.jpg"><figcaption>Koridor r14</figcaption></figure></div>
+</section>
+<section id="tab-3" class="tab" hidden>
+  <h2>MRT Jakarta</h2>
+  <p class="note">Lin Utara-Selatan, 13 stasiun (Lebak Bulus - Bundaran HI), edisi Jan 2026.</p>
+  <div class="mapbox"><img src="maps/fdtj_mrt_2026_01.png" alt="Peta MRT Jakarta"
+       loading="lazy" onclick="zoom(this)"></div>
+  <p class="meta">Diakses: 2026-09-29</p>
+  
+</section>
+<section id="tab-4" class="tab" hidden>
+  <h2>LRT Jakarta</h2>
+  <p class="note">PERHATIAN: edisi Nov 2024 — hanya fase 1A (6 stasiun, s.d. Velodrome). Ekstensi fase 1B (Velodrome-Manggarai, +5 stasiun, total 11) diuji coba 10 Sep 2026 dan diresmikan Presiden 16 Sep 2026 — lihat Peta Integrasi untuk jaringan terkini.</p>
+  <div class="mapbox"><img src="maps/fdtj_lrtj_2024_11.png" alt="Peta LRT Jakarta"
+       loading="lazy" onclick="zoom(this)"></div>
+  <p class="meta">Diakses: 2026-09-29</p>
+  
+</section>
+<section id="tab-5" class="tab" hidden>
+  <h2>LRT Jabodebek</h2>
+  <p class="note">Lin Cibubur (Dukuh Atas BNI - Harjamukti) & Lin Bekasi (Dukuh Atas BNI - Jatimulya), 18 stasiun. Tidak ada perubahan lin sejak 2023.</p>
+  <div class="mapbox"><img src="maps/fdtj_lrtb_2024_11.png" alt="Peta LRT Jabodebek"
+       loading="lazy" onclick="zoom(this)"></div>
+  <p class="meta">Diakses: 2026-09-29</p>
+  
+</section></main>
+<footer>
+  Sumber: situs resmi operator &amp; FDTJ (Transport for Jakarta) &mdash;
+  detail per file ada di <code>data/raw/maps/MANIFEST.json</code>.
+  Peta interaktif berbasis data (Leaflet):
+  <a href="network_map_interaktif.html">buka di sini</a>.
+</footer>
+<div id="zoomer" onclick="this.classList.remove('open')">
+  <img id="zoomimg" alt="">
+</div>
+<script>
+function show(i) {
+  document.querySelectorAll('section.tab').forEach((s, j) =>
+    s.classList.toggle('active', i === j));
+  document.querySelectorAll('.navbtn').forEach((b, j) =>
+    b.classList.toggle('active', i === j));
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+function zoom(img) {
+  document.getElementById('zoomimg').src = img.src;
+  document.getElementById('zoomer').classList.add('open');
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('zoomer').classList.remove('open');
+});
+</script>
+</body>
+</html>

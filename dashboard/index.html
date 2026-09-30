@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JPTI — Dashboard Tren Historis (Fase 1)</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root { --bg:#0e1117; --panel:#161b24; --ink:#e6e9ef; --mut:#8b93a7; --acc:#4f9cf9; --line:#232a37; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,'Segoe UI',Roboto,sans-serif; }
+  header { padding:28px 32px 12px; }
+  header h1 { margin:0 0 4px; font-size:20px; letter-spacing:.2px; }
+  header p { margin:0; color:var(--mut); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; padding:16px 32px 8px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 16px 8px; grid-column:span 12; }
+  .card h2 { margin:0 0 2px; font-size:15px; }
+  .card .sub { color:var(--mut); font-size:12px; margin:0 0 8px; }
+  .chart { width:100%; height:300px; }
+  .chart.tall { height:360px; }
+  .half { grid-column:span 6; }
+  @media (max-width:980px){ .half { grid-column:span 12; } }
+  .src { margin:4px 0 12px; border-top:1px dashed var(--line); padding-top:8px; font-size:11.5px; color:var(--mut); }
+  .src b { color:var(--ink); font-weight:600; }
+  .badge { display:inline-block; border:1px solid var(--line); border-radius:6px; padding:0 6px; margin-right:6px; font-size:11px; }
+  .badge.sec { border-color:#7a5b1e; color:#e0b45f; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; }
+  footer { padding:8px 32px 32px; color:var(--mut); font-size:12px; }
+  code { background:#0b0e13; padding:1px 5px; border-radius:4px; font-size:11.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>JPTI — Dashboard Tren Penumpang Historis <span style="color:var(--acc)">(Fase 1)</span></h1>
+  <p>Data per 2026-09-29 · Semua angka berlabel sumber &amp; definisi · Granularitas tertinggi publik: bulanan (riil: harian 2023 TransJakarta — file sumber rusak, lihat registry)</p>
+</header>
+<div class="grid">
+
+  <div class="card half">
+    <h2>MRT Jakarta — 2026 (definisi tap-in BPS)</h2>
+    <p class="sub">Jan–Jun 2026 · sumber: tabel statistik BPS DKI (last update 7 Agu 2026)</p>
+    <div id="c-mrt" class="chart"></div>
+    <div class="src"><b>Sumber:</b> SRC-BPS-02 (BPS DKI Jakarta) · definisi: tap-in pintu masuk stasiun keberangkatan/NFC · diambil 2026-09-29 · label <span class="badge">historis</span></div>
+  </div>
+  <div class="card half">
+    <h2>LRT Jakarta — 2026 (definisi tap-in BPS)</h2>
+    <p class="sub">Jan–Jun 2026 · sumber: tabel statistik BPS DKI</p>
+    <div id="c-lrtj" class="chart"></div>
+    <div class="src"><b>Sumber:</b> SRC-BPS-02 (BPS DKI Jakarta) · label <span class="badge">historis</span> · <b>Catatan:</b> koridor baru Kelapa Gading–Manggarai diresmikan 16 Sep 2026 (setelah periode ini)</div>
+  </div>
+  <div class="card half">
+    <h2>TransJakarta — 2026 (definisi tap-in BPS)</h2>
+    <p class="sub">Jan–Jul 2026 · Jul 2026 dari rilis BPS via media (sekunder, dibulatkan)</p>
+    <div id="c-tj" class="chart"></div>
+    <div class="src"><b>Sumber:</b> SRC-BPS-02 (Jan–Jun) + SRC-SEC-06 (Jul, sekunder) · label <span class="badge">historis</span> <span class="badge sec">sekunder (Jul)</span></div>
+  </div>
+  <div class="card half">
+    <h2>Total bulanan 2026 — MRT + LRT Jakarta + TransJakarta</h2>
+    <p class="sub">Seri BPS yang konsisten (Jan–Jun) · jangan dicampur dengan series definisi lain</p>
+    <div id="c-total" class="chart"></div>
+    <div class="src"><b>Sumber:</b> SRC-BPS-02 (ketiga moda, definisi sama) · label <span class="badge">historis</span></div>
+  </div>
+
+  <div class="card">
+    <h2>MRT Jakarta — Tren Panjang Jan 2023 – Jun 2026 (Satu Data Indonesia / Dishub)</h2>
+    <p class="sub">Definisi berbeda dari BPS (perbandingan: Apr 2026 SDI 4.347.308 vs BPS 3.879.260). Titik berwarna = ada catatan kualitas.</p>
+    <div id="c-sdi" class="chart tall"></div>
+    <div class="src"><b>Sumber:</b> SRC-MRT-01 (data.go.id / satudata.jakarta.go.id, modif 3 Sep 2026) · label <span class="badge">historis</span> ·
+    <b>Kualitas:</b> Jan–Mar 2023 anomali rendah; Jul 2025 = Jun 2025 (dugaan duplikat)</div>
+  </div>
+
+  <div class="card">
+    <h2>Perbandingan Tahunan antar Moda (2020–2025)</h2>
+    <p class="sub">Setiap series memakai definisi &amp; sumbernya sendiri (lihat catatan bawah grafik) — untuk orientasi skala, bukan perbandingan resmi.</p>
+    <div id="c-annual" class="chart tall"></div>
+    <div class="src"><b>Sumber:</b> LRT Jakarta: Wikipedia (ref BPK/BPS, <span class="badge sec">sekunder</span>) · MRT 2023/24: total SDI, 2025: resmi operator · TJ 2024: operator, 2025: BPS (<span class="badge sec">sekunder</span>) · KRL 2025: Antara (<span class="badge sec">sekunder</span>) · LRT Jabodebek: belum ada angka tahunan resmi</div>
+  </div>
+
+  <div class="card half">
+    <h2>KRL Commuter Line — titik data yang dipublikasikan (kci.id)</h2>
+    <p class="sub">Tidak ada seri bulanan lengkap; hanya periode yang dirilis operator.</p>
+    <div id="c-krl" class="chart tall"></div>
+    <div class="src"><b>Sumber:</b> SRC-KRL-01 (kci.id) + SRC-SEC-05 (FY2025, <span class="badge sec">sekunder</span>) · definisi "volume pengguna" Jabodetabek</div>
+  </div>
+  <div class="card half">
+    <h2>LRT Jabodebek — titik data (rilis KAI)</h2>
+    <p class="sub">Ketersediaan ridership terbaik di antara moda non-BPS (rilis kumulatif berkala).</p>
+    <div id="c-lrtb" class="chart tall"></div>
+    <div class="src"><b>Sumber:</b> SRC-LRTB-05 (kai.id / lrtjabodebek.kai.id / sosmed) + SRC-SEC-07 (rincian Q1, <span class="badge sec">sekunder</span>)</div>
+  </div>
+
+  <div class="card">
+    <h2>Registri Sumber &amp; Freshness (semua series di dashboard ini)</h2>
+    <p class="sub"><code>provenance</code>: primer = terbit operator/instansi; sekunder = dikutip media. <code>label</code>: mengikuti aturan jawaban proyek.</p>
+    <div style="overflow-x:auto"><table id="t-src">
+      <thead><tr><th>Series</th><th>Source ID</th><th>Sumber</th><th>Definisi (ringkas)</th><th>Published</th><th>Diambil</th><th>Provenance</th><th>Label</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+</div>
+<footer>
+  Fase 1 — Fondasi data &amp; dashboard historis · dibangun dari <code>data/processed/ridership_monthly.csv</code> (87 baris, 10 series) ·
+  Keterbatasan: OD &amp; data per jam <code>unavailable</code> publik; real-time tidak ada; LRT Jabodebek tidak ada angka tahunan resmi.
+</footer>
+<script>
+const D = {"asOf": "2026-09-29", "bps2026": {"months": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"], "mrt": [4096854, 3610323, 3485945, 3879260, 3857969, 4349150], "lrtj": [114928, 103267, 114674, 119517, 119185, 134264], "tj": [35359718, 32876499, 32130810, 37921279, 35585808, 37585661, 40320000], "tjMonths": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"]}, "mrtSdi": {"dates": ["2023-01-01", "2023-02-01", "2023-03-01", "2023-04-01", "2023-05-01", "2023-06-01", "2023-07-01", "2023-08-01", "2023-09-01", "2023-10-01", "2023-11-01", "2023-12-01", "2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01", "2024-05-01", "2024-06-01", "2024-07-01", "2024-08-01", "2024-09-01", "2024-10-01", "2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01", "2025-06-01", "2025-07-01", "2025-08-01", "2025-09-01", "2025-10-01", "2025-11-01", "2025-12-01", "2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01", "2026-06-01"], "values": [1092508, 532671, 960406, 2079745, 2688158, 2750562, 2960596, 3024172, 3050531, 3140481, 3153726, 3048562, 3163257, 2868163, 2920796, 2768974, 3340972, 3539619, 3868155, 3740153, 3557530, 3865578, 3563874, 3623267, 3579538, 3483799, 3219035, 3268690, 3692387, 4419821, 4419821, 4001641, 3915980, 4487284, 4173621, 4398037, 4195303, 3733714, 3638751, 4347308, 4001270, 4509047], "notes": {"2023-01-01": "anomali: nilai jauh di bawah tren (cek ulang ke sumber)", "2023-02-01": "anomali: nilai jauh di bawah tren (cek ulang ke sumber)", "2023-03-01": "anomali: nilai jauh di bawah tren (cek ulang ke sumber)", "2025-07-01": "dugaan duplikat: sama dengan Jun 2025 (4.419.821) — tandai perlu verifikasi"}}, "mrt2026": {"dates": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"], "values": [4195303, 3733714, 3638751, 4347308, 4001270, 4509047]}, "annual": {"years": ["2020", "2021", "2022", "2023", "2024", "2025"], "lrtj": [480690, 315366, 685249, 1037162, 1213470, 1313520], "mrt": [null, null, null, 28482118, 40820338, 46449629], "tj": [null, null, null, null, 371400000, 414350000], "krl": [null, null, null, null, null, 349311251]}, "krl": [{"d": "2024-01-01", "end": "2024-09-30", "v": 241791750, "t": "custom", "n": "Q3 rilis: 1 Jan–30 Sep 2024, +15% YoY", "sec": false}, {"d": "2024-01-01", "end": "2024-01-31", "v": 26848194, "t": "month", "n": "", "sec": false}, {"d": "2025-01-01", "end": "2025-05-31", "v": 179154727, "t": "custom", "n": "Jan–Mei 2025, +34,98% YoY", "sec": false}, {"d": "2025-01-01", "end": "2025-12-31", "v": 349311251, "t": "year", "n": "KAI Commuter total 400.737.915; Jabodetabek 349.311.251", "sec": true}, {"d": "2025-05-01", "end": "2025-05-31", "v": 29122224, "t": "month", "n": "+5,46% YoY", "sec": false}, {"d": "2026-01-01", "end": "2026-01-31", "v": 30226365, "t": "month", "n": "+8% YoY", "sec": false}, {"d": "2026-01-01", "end": "2026-03-31", "v": 87979371, "t": "quarter", "n": "+7% YoY (Q1 2025: 82.114.334)", "sec": false}, {"d": "2026-01-01", "end": "2026-06-30", "v": 181612400, "t": "semester", "n": "+7,02% YoY (S1 2025: 169.701.778)", "sec": false}], "lrtb": [{"d": "2025-01-01", "end": "2025-06-30", "v": 13000000, "t": "semester", "n": "\"Lebih dari 13 juta\", +50% YoY — angka pembulatan", "sec": false, "approx": true}, {"d": "2025-06-01", "end": "2025-06-30", "v": 2310000, "t": "month", "n": "", "sec": false, "approx": false}, {"d": "2026-01-01", "end": "2026-07-31", "v": 19079347, "t": "custom", "n": "+21% YoY", "sec": false, "approx": false}, {"d": "2026-01-01", "end": "2026-08-31", "v": 21809797, "t": "custom", "n": "+19,05% YoY (Jan–Agu 2025: 18.320.610)", "sec": false, "approx": false}, {"d": "2026-01-01", "end": "2026-01-31", "v": 2714594, "t": "month", "n": "rincian Q1 2026 oleh Manager PR LRT Jabodebek", "sec": true, "approx": false}, {"d": "2026-01-01", "end": "2026-03-31", "v": 7754946, "t": "quarter", "n": "+22% YoY", "sec": true, "approx": false}, {"d": "2026-02-01", "end": "2026-02-28", "v": 2530000, "t": "month", "n": "", "sec": true, "approx": false}, {"d": "2026-03-01", "end": "2026-03-31", "v": 2510352, "t": "month", "n": "", "sec": true, "approx": false}], "sources": [{"series": "tj_bps_annual", "source_id": "SRC-TJ-06", "source": "BPS (dikutip operator/PPID)", "definition": "BPS: total penumpang yang diangkut moda massal via tap-in pintu masuk halte/stasiun keberangkatan (atau NFC)", "published": "2026-01", "retrieved": "2026-09-29", "provenance": "sekunder", "label": "historis"}, {"series": "tj_bps_tapin", "source_id": "SRC-BPS-02", "source": "BPS DKI Jakarta — tabel statistik transportasi", "definition": "BPS: total penumpang yang diangkut moda massal via tap-in pintu masuk halte/stasiun keberangkatan (atau NFC)", "published": "2026-08-07", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}, {"series": "tj_bps_tapin", "source_id": "SRC-SEC-06", "source": "Viva.co.id (kutip rilis BPS 1 Sep 2026) — Jul 2026", "definition": "BPS: total penumpang yang diangkut moda massal via tap-in pintu masuk halte/stasiun keberangkatan (atau NFC)", "published": "2026-09-01", "retrieved": "2026-09-29", "provenance": "sekunder", "label": "historis"}, {"series": "tj_operator", "source_id": "SRC-TJ-06", "source": "transjakarta.co.id — siaran pers operator", "definition": "Operator: jumlah pelanggan TransJakarta (orang, definisi internal operator)", "published": "2025-01", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}, {"series": "tj_operator", "source_id": "SRC-SEC-01", "source": "GoodStats (data Dishub) — Des 2025", "definition": "BPS: total penumpang yang diangkut moda massal via tap-in pintu masuk halte/stasiun keberangkatan (atau NFC)", "published": "2026-01", "retrieved": "2026-09-29", "provenance": "sekunder", "label": "historis"}, {"series": "krl_kci", "source_id": "SRC-KRL-01", "source": "kci.id — rilis resmi KAI Commuter", "definition": "KCI: 'volume pengguna' Commuter Line Jabodetabek (orang, naik+berangkat per sistem; beda definisi BPS/Dishub)", "published": "2024-10", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}, {"series": "krl_kci", "source_id": "SRC-SEC-05", "source": "ANTARA (kutip VP Corporate Communication KAI) — FY2025 Jabodetabek", "definition": "KCI: 'volume pengguna' Commuter Line Jabodetabek (orang, naik+berangkat per sistem; beda definisi BPS/Dishub)", "published": "2026-02-08", "retrieved": "2026-09-29", "provenance": "sekunder", "label": "historis"}, {"series": "lrtb_kai", "source_id": "SRC-LRTB-05", "source": "lrtjabodebek.kai.id — siaran pers KAI", "definition": "KAI: 'pengguna' LRT Jabodebek (orang, total sistem; beda definisi antar-sumber KAI/BPS)", "published": "2025-07-07", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}, {"series": "lrtb_kai", "source_id": "SRC-SEC-07", "source": "MetroTVNews (kutip KAI)", "definition": "KAI: 'pengguna' LRT Jabodebek (orang, total sistem; beda definisi antar-sumber KAI/BPS)", "published": "2026-04-08", "retrieved": "2026-09-29", "provenance": "sekunder", "label": "historis"}, {"series": "lrtj_annual", "source_id": "SRC-SEC-WIKI", "source": "Wikipedia LRT Jakarta (ref: BPK DKI & BPS)", "definition": "BPS/BPK DKI (via Wikipedia): jumlah penumpang LRT Jakarta per tahun", "published": "", "retrieved": "2026-09-29", "provenance": "sekunder", "label": "historis"}, {"series": "lrtj_bps", "source_id": "SRC-BPS-02", "source": "BPS DKI Jakarta — tabel statistik transportasi", "definition": "BPS: total penumpang yang diangkut moda massal via tap-in pintu masuk halte/stasiun keberangkatan (atau NFC)", "published": "2026-08-07", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}, {"series": "mrt_bps_tapin", "source_id": "SRC-BPS-02", "source": "BPS DKI Jakarta — tabel statistik transportasi", "definition": "BPS: total penumpang yang diangkut moda massal via tap-in pintu masuk halte/stasiun keberangkatan (atau NFC)", "published": "2026-08-07", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}, {"series": "mrt_operator", "source_id": "SRC-MRT-05", "source": "PT MRT Jakarta — rilis resmi (arsip berita + media)", "definition": "Operator: jumlah pelanggan MRT (orang)", "published": "2026-01", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}, {"series": "mrt_sdi_dishub", "source_id": "SRC-MRT-01", "source": "Satu Data Indonesia — Data Jumlah Penumpang MRT", "definition": "Dishub DKI/SDI: jumlah penumpang MRT (definisi portal Satu Data Jakarta; sedikit berbeda dari tap-in BPS)", "published": "2026-09-03", "retrieved": "2026-09-29", "provenance": "primer", "label": "historis"}], "notes": {"mrtAnnual": "MRT 2023/2024 = total bulanan SDI (definisi Dishub); 2025 = resmi operator (46.449.629). Definisi berbeda antar series — jangan dijumlahkan lintas series.", "tjAnnual": "TJ 2024 = operator (371,4 jt); 2025 = BPS (414,35 jt). Definisi berbeda.", "krl": "KRL: hanya titik data yang dipublikasikan kci.id (bulanan parsial, kuartal, semester, tahunan). Bukan seri lengkap.", "lrtb": "LRT Jabodebek: titik data dari rilis KAI; S1-2025 angka pembulatan ('>13 juta')."}};
+const fmt = v => v == null ? '–' : v.toLocaleString('id-ID');
+const ax = { axisLine:{lineStyle:{color:'#3a4356'}}, axisLabel:{color:'#8b93a7'}, splitLine:{lineStyle:{color:'#1d2430'}} };
+function base(title){ return {
+  backgroundColor:'transparent',
+  tooltip:{ trigger:'axis', valueFormatter:fmt, backgroundColor:'#0b0e13', borderColor:'#232a37', textStyle:{color:'#e6e9ef'} },
+  grid:{ left:64, right:24, top:32, bottom:36 },
+  xAxis:{ type:'category', ...ax }, yAxis:{ type:'value', ...ax, axisLabel:{color:'#8b93a7', formatter:v=> v>=1e6? (v/1e6)+'jt' : (v/1e3)+'rb'} },
+};}
+function mk(id, opt){ const c = echarts.init(document.getElementById(id), null, {renderer:'canvas'}); c.setOption(opt); window.addEventListener('resize', ()=>c.resize()); }
+
+// 2026 per moda (BPS)
+const b = D.bps2026;
+mk('c-mrt', {...base(), xAxis:{type:'category',...ax,data:b.months}, yAxis:base().yAxis,
+  series:[{type:'line',smooth:true,data:b.mrt,areaStyle:{opacity:.15},lineStyle:{width:2.5,color:'#4f9cf9'},itemStyle:{color:'#4f9cf9'}}]});
+mk('c-lrtj', {...base(), xAxis:{type:'category',...ax,data:b.months}, yAxis:base().yAxis,
+  series:[{type:'line',smooth:true,data:b.lrtj,areaStyle:{opacity:.15},lineStyle:{width:2.5,color:'#3ecf8e'},itemStyle:{color:'#3ecf8e'}}]});
+const tjOpt = {...base(), xAxis:{type:'category',...ax,data:b.tjMonths}, yAxis:base().yAxis,
+  series:[{type:'line',smooth:true,data:b.tj,areaStyle:{opacity:.15},lineStyle:{width:2.5,color:'#f2b544'},itemStyle:{color:'#f2b544'},
+    markPoint:{data:[{coord:['2026-07', b.tj[6]], value:'sekunder', itemStyle:{color:'#7a5b1e'}, label:{fontSize:10}}]}}]};
+mk('c-tj', tjOpt);
+const totalM = b.months.map((m,i)=> (b.mrt[i]||0)+(b.lrtj[i]||0)+(b.tj[i]||0));
+mk('c-total', {...base(), xAxis:{type:'category',...ax,data:b.months}, yAxis:base().yAxis,
+  series:[{type:'bar',data:totalM,itemStyle:{color:'#7c6cf0',borderRadius:[4,4,0,0]}, barWidth:'55%'},
+          {type:'line',data:[...b.mrt,...[null]],lineStyle:{type:'dashed',color:'#4f9cf9',width:1.5},itemStyle:{color:'#4f9cf9'},name:'MRT'},
+          {type:'line',data:[...b.tj.slice(0,6),null],lineStyle:{type:'dashed',color:'#f2b544',width:1.5},itemStyle:{color:'#f2b544'},name:'TJ'}],
+  legend:{textStyle:{color:'#8b93a7'},top:0}});
+
+// MRT SDI panjang
+const sdi = D.mrtSdi;
+const anom = d => !!D.mrtSdi.notes[d];
+mk('c-sdi', {...base(), xAxis:{type:'category',...ax,data:sdi.dates,axisLabel:{color:'#8b93a7',rotate:45}}, yAxis:base().yAxis,
+  series:[{type:'line',smooth:true,data:sdi.values,lineStyle:{width:2.5,color:'#4f9cf9'},itemStyle:{color:'#4f9cf9'},
+    areaStyle:{opacity:.12},
+    markPoint:{ data: sdi.dates.filter(anom).map(d=>({coord:[d, sdi.values[sdi.dates.indexOf(d)]], value:'?', itemStyle:{color:'#e0654f'}, label:{show:false}})),
+      symbolSize:14 }}]});
+
+// tahunan
+const a = D.annual;
+mk('c-annual', {...base(), xAxis:{type:'category',...ax,data:a.years}, yAxis:base().yAxis,
+  series:[
+    {name:'MRT (SDI/operator)',type:'bar',data:a.mrt,itemStyle:{color:'#4f9cf9',borderRadius:[4,4,0,0]}},
+    {name:'LRT Jakarta (sekunder)',type:'bar',data:a.lrtj,itemStyle:{color:'#3ecf8e',borderRadius:[4,4,0,0]}},
+    {name:'TransJakarta (operator/BPS)',type:'bar',data:a.tj,itemStyle:{color:'#f2b544',borderRadius:[4,4,0,0]}},
+    {name:'KRL (sekunder)',type:'bar',data:a.krl,itemStyle:{color:'#c678dd',borderRadius:[4,4,0,0]}}
+  ],
+  legend:{textStyle:{color:'#8b93a7'},top:0}});
+
+// KRL titik
+const krl = D.krl;
+const krlLabels = krl.map(k=> `${k.d.slice(0,4)}-${k.d.slice(5,7)}${k.t!=='month'?' ('+k.t+')':''}`);
+mk('c-krl', {...base(), xAxis:{type:'category',...ax,data:krlLabels,axisLabel:{color:'#8b93a7',rotate:30}}, yAxis:base().yAxis,
+  series:[{type:'bar',data:krl.map(k=>({value:k.v,itemStyle:{color:k.sec?'#8a6d2f':'#c678dd',borderRadius:[4,4,0,0]}})), barWidth:'50%'}],
+  tooltip:{...base().tooltip, valueFormatter:fmt}});
+
+// LRT Jabodebek titik
+const lb = D.lrtb;
+const lbLabels = lb.map(k=> `${k.d.slice(0,4)}-${k.d.slice(5,7)}${k.t!=='month'?' ('+k.t+')':''}${k.approx?' ~':''}`);
+mk('c-lrtb', {...base(), xAxis:{type:'category',...ax,data:lbLabels,axisLabel:{color:'#8b93a7',rotate:30}}, yAxis:base().yAxis,
+  series:[{type:'bar',data:lb.map(k=>({value:k.v,itemStyle:{color:k.sec?'#8a6d2f':'#3ecf8e',borderRadius:[4,4,0,0]}})), barWidth:'50%'}],
+  tooltip:{...base().tooltip, valueFormatter:fmt}});
+
+// tabel sumber
+const tb = document.querySelector('#t-src tbody');
+D.sources.forEach(s=>{
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><code>${s.series}</code></td><td>${s.source_id}</td><td>${s.source}</td><td>${s.definition}</td><td>${s.published||'–'}</td><td>${s.retrieved}</td><td>${s.provenance==='sekunder'?'<span class="badge sec">sekunder</span>':'primer'}</td><td>${s.label}</td>`;
+  tb.appendChild(tr);
+});
+</script>
+</body>
+</html>

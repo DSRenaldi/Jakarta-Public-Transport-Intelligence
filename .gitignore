@@ -1,0 +1,23 @@
+# kredensial — JANGAN pernah di-commit
+.env
+
+# environment Python
+.venv/
+__pycache__/
+*.pyc
+
+# artefak kerja sementara (log, screenshot, file OSM mentah — data kanonik di DB)
+.work/
+
+# file besar yang dapat diunduh ulang (manifest tetap dipertahankan)
+data
+
+# OS
+Thumbs.db
+Desktop.ini
+
+db
+docs
+AGENTS.md
+context.md
+MEMORY.md
