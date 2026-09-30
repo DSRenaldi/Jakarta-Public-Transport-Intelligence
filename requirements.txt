@@ -16,3 +16,7 @@ numpy>=1.26           # cosine similarity sisi Python (pgvector tidak tersedia d
 fastembed>=0.8        # embedding ONNX lokal (paraphrase-multilingual-MiniLM-L12-v2, 384 dim)
 pymupdf>=1.24         # render PDF peta ke PNG (galeri dashboard)
 fonttools>=4.50       # parsing font CFF Type1 saat ekstrak PDF (pypdf)
+
+# Fase B.1 — Web API
+fastapi>=0.142        # backend API (api/app.py)
+uvicorn[standard]>=0.54  # ASGI server (jalankan: python -m uvicorn api.app:app --port 8000)
