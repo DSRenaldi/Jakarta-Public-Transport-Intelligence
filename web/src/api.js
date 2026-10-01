@@ -28,10 +28,10 @@ export const searchStops = (q, mode, limit = 6) => {
   return api(`/api/stops/search?${p}`)
 }
 
-export const findRoute = ({ origin, dest, prefer, origin_mode, dest_mode }) =>
+export const findRoute = ({ origin, dest, prefer, origin_mode, dest_mode, dep_time }) =>
   api('/api/route', {
     method: 'POST',
-    body: JSON.stringify({ origin, dest, prefer, origin_mode: origin_mode || null, dest_mode: dest_mode || null }),
+    body: JSON.stringify({ origin, dest, prefer, origin_mode: origin_mode || null, dest_mode: dest_mode || null, dep_time: dep_time || null }),
   })
 
 export const ragQuery = ({ query, top_k, operator, mode, doc_type, label }) =>

@@ -1,0 +1,82 @@
+{
+  "model_version": "crowding-v1",
+  "status": "BASELINE PATTERN MODEL (proksi berlabel)",
+  "disclaimer": "Bukan pengukuran load factor. Data per jam & per stasiun TIDAK tersedia (data gap, keputusan 30 Sep 2026: tidak mengajukan permintaan data). Model ini menyusun pola dari input terdokumentasi (jendela sibuk resmi, rasio akhir pekan, skala permintaan) dan SELALU berlabel proksi/prediksi dengan sumber per klaim (context.md §15.6, §27.1, §29.5).",
+  "thresholds": {
+    "note": "PROVISIONAL v1 — harus divalidasi terhadap data load factor aktual sebelum dipakai sebagai ambang permanen (§15.6: 'Jangan menetapkan ambang permanen sebelum validasi'). Kategori 'sangat_padat' DITAHAN (tidak dihasilkan) sampai ada bukti terdokumentasi/validasi.",
+    "padat_min": 0.85,
+    "sedang_min": 0.35
+  },
+  "window_weights": {
+    "peak": 1.0,
+    "shoulder_min": 30,
+    "shoulder": 0.65,
+    "offpeak_day": 0.30,
+    "night": 0.10
+  },
+  "day_factors": {
+    "rail": {
+      "weekday": 1.0,
+      "weekend": 0.38,
+      "source_id": "SRC-SEC-07",
+      "note": "LRT Jabodebek Q1 2026: rata-rata weekday 113.898/hari vs weekend 42.829/hari = rasio 0.376 (dibulatkan 0.38). Dipakai utk SEMUA moda rail sebagai proksi (asumsi: pola serupa antar moda rail; perlu verifikasi)."
+    },
+    "brt": {
+      "weekday": 1.0,
+      "weekend": 0.38,
+      "source_id": null,
+      "note": "ASUMSI (belum terverifikasi): rasio akhir pekan TransJakarta tidak terdokumentasi; diasumsikan mengikuti pola rail (0.38). Konsekuensi: kepercayaan estimasi BRT lebih rendah."
+    }
+  },
+  "window_sources": {
+    "note": "Jendela sibuk diambil langsung dari tabel DB line_headways (kolom peak_windows) per jalur; sumber aslinya SRC-KRL-03 (rilis KCI Jan 2026 + GAPEKA). Jalur tanpa jendela (LRTJ): estimasi datar offpeak sepanjang hari. BRT: pakai jendela rail Jabodetabek sebagai ASUMSI (belum terverifikasi).",
+    "brt_assumed_windows": "06:00-09:00;16:00-19:00"
+  },
+  "mode_daily_context": [
+    {
+      "mode_id": "KRL",
+      "daily_passengers": 957017,
+      "period": "2025",
+      "source_id": "SRC-SEC-05",
+      "note": "Jabodetabek 349.311.251 penumpang / 365 hari (ANTARA, kutip VP Corp Comm KAI)."
+    },
+    {
+      "mode_id": "MRT",
+      "daily_passengers": 127259,
+      "period": "2025 (realisasi); target 2026 = 137.000/hari",
+      "source_id": "SRC-MRT-05",
+      "note": "Realisasi 2025 = 46.449.629 pelanggan; Des 2025 = 141.872/hari."
+    },
+    {
+      "mode_id": "BRT",
+      "daily_passengers": 1135205,
+      "period": "2025",
+      "source_id": "SRC-TJ-06",
+      "note": "414.350.000 penumpang / 365 hari."
+    },
+    {
+      "mode_id": "LRT_JABODEBEK",
+      "daily_passengers": 113898,
+      "period": "Q1 2026 (rata-rata weekday)",
+      "source_id": "SRC-SEC-07",
+      "note": "Rilis LRT Jabodebek 04/2026; weekend 42.829/hari."
+    },
+    {
+      "mode_id": "LRT_JAKARTA",
+      "daily_passengers": 3599,
+      "period": "2025",
+      "source_id": "SRC-SEC-WIKI",
+      "note": "1.313.520 penumpang / 365 hari."
+    }
+  ],
+  "confidence_tiers": {
+    "note": "Tier kepercayaan per jalur: tinggi = jendela + headway dari rilis resmi & pola rasio terdokumentasi; sedang = jendela/headway berlabel PROKSI; rendah = jendela asumsi atau tanpa jendela.",
+    "by_prefix": {
+      "KRL_": "medium",
+      "LRTB_": "medium",
+      "MRT_": "low",
+      "LRTJ_": "low"
+    },
+    "BRT": "low"
+  }
+}

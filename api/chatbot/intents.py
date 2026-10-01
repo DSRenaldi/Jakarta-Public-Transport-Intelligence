@@ -65,6 +65,7 @@ _CROWD_RE = re.compile(r"""
   | \b(?:pagi|siang|sore|malam|hari kerja|akir pekan|akhir pekan|weekend|libur)\b.{0,25}\b(?:ramai|padat|sepi|longgar|sesak|penuh)\b
   | \b(?:ramai|padat|sepi|longgar|sesak|penuh)\b.{0,25}\b(?:pagi|siang|sore|malam|hari kerja|akhir pekan|weekend|libur|jam sibuk)\b
   | \bwaktu\s+(?:longgar|padat|sepi|ramai)\b
+  | \bbiasanya\b.{0,30}\b(?:ramai|padat|sepi|longgar|sesak|penuh|rame)\b
 """, re.IGNORECASE | re.VERBOSE)
 _CROWD_EXCLUDE = {"station_ranking", "policy_document"}
 

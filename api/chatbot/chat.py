@@ -58,8 +58,12 @@ def _extract_user_spec(intent: str) -> str:
                 '"period": string|null}')
     if intent == "mode_comparison":
         return 'mode_comparison: {"period": string|null}'
-    if intent in ("fare_query", "schedule_query", "crowding"):
+    if intent in ("fare_query", "schedule_query"):
         return 'lainnya: {"mode": "MRT"|"KRL"|"LRT"|"BRT"|null}'
+    if intent == "crowding":
+        return ('crowding: {"mode": "MRT"|"KRL"|"LRT"|"BRT"|null, '
+                '"time": "HH:MM"|null, '
+                '"day_type": "weekday"|"weekend"|null}')
     return "lainnya: {}"
 
 
@@ -168,6 +172,14 @@ def _regex_slots(intent: str, text: str) -> dict:
         if years and intent in ("ridership_statistics", "mode_comparison"):
             slots["period"] = sorted(set(years))[0] if len(set(years)) == 1 \
                 else f"{min(years)} s.d. {max(years)}"
+    if intent == "crowding":
+        tm = re.search(r"\bpukul\s+(\d{1,2})\s*[.:h]?\s*(\d{2})?", text, re.I)
+        if tm:
+            slots["time"] = f"{int(tm.group(1)):02d}:{tm.group(2) or '00'}"
+        tl = text.lower()
+        if re.search(r"akhir\s+pekan|weekend|hari\s+minggu|hari\s+sabtu|"
+                     r"^\bsabtu\b|^\bminggu\b", tl):
+            slots["day_type"] = "weekend"
     return slots
 
 
@@ -220,13 +232,25 @@ def run_tool(intent: str, slots: dict, question: str, net,
                 "result": tools.tool_schedule(mode, net)}
     if intent == "crowding":
         mode = slots.get("mode") or _mode_from_text(question)
+        day = slots.get("day_type")
+        days = [day] if day in ("weekday", "weekend") \
+            else ["weekday", "weekend"]
+        if slots.get("time"):
+            data = {"estimates": [tools.crowding_estimate(mode=mode,
+                        t=slots.get("time"), day_type=d) for d in days]}
+        else:
+            # tanpa jam spesifik → ringkasan harian (rentang jam per
+            # kategori), bukan estimasi satu titik waktu
+            data = {"daily": [tools.crowding_daily(mode=mode, day_type=d)
+                              for d in days]}
         return {"tool": "crowding",
-                "result": {"headways": tools.tool_schedule(mode, net),
+                "result": {**data,
+                           "headways": tools.tool_schedule(mode, net),
                            "rag": tools.rag(question, top_k=2)},
-                "note": "Data penumpang per jam TIDAK tersedia. Pakai "
-                        "headway + jendela sibuk (proksi) dan pola dalam "
-                        "dokumen; jangan menyatakan kepadatan sebagai "
-                        "fakta aktual."}
+                "note": "Data penumpang per jam TIDAK tersedia. Estimasi "
+                        "adalah model pola (crowding-v1, label proksi), "
+                        "bukan pengukuran. Sebutkan label + sumbernya; "
+                        "jangan menyatakan kepadatan sebagai fakta aktual."}
     if intent == "other":
         return {"tool": None, "result": None}
     # policy_document → RAG
@@ -253,7 +277,7 @@ def _rag_block(ragres: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_context(tool_out: dict) -> str:
+def _build_context(tool_out: dict, slots: dict | None = None) -> str:
     tool = tool_out["tool"]
     if tool is None:
         return "(tidak ada data; jawab sebagai asisten: sapaan/off-topic)"
@@ -296,10 +320,27 @@ def _build_context(tool_out: dict) -> str:
                 "sesuai file jadwal):\n"
                 + json.dumps(res, ensure_ascii=False))
     if tool == "crowding":
-        parts = ["Data proksi kepadatan — headway & jendela sibuk per jalur "
-                 "(bukan data penumpang per jam; data per jam TIDAK "
-                 "tersedia):\n"
-                 + json.dumps(res.get("headways") or {}, ensure_ascii=False)]
+        parts = []
+        ests = [e for e in (res.get("estimates") or []) if e.get("available")]
+        if ests:
+            parts.append("Estimasi model kepadatan crowding-v1 utk jam yang "
+                         "ditanyakan (label proksi — BUKAN pengukuran):\n"
+                         + json.dumps(ests, ensure_ascii=False))
+        dails = [d for d in (res.get("daily") or []) if d.get("available")]
+        if dails:
+            parts.append("Ringkasan harian model kepadatan crowding-v1 "
+                         "(rentang jam per kategori; label proksi — BUKAN "
+                         "pengukuran):\n"
+                         + json.dumps(dails, ensure_ascii=False))
+            if not (slots or {}).get("day_type"):
+                parts.append("(hari tidak disebut pengguna — ringkasan "
+                             "weekday & weekend disertakan; weekday umum "
+                             "lebih padat untuk moda rail)")
+        parts.append("Data pendukung — headway & jendela sibuk per jalur "
+                     "(bukan data penumpang per jam; data per jam TIDAK "
+                     "tersedia):\n"
+                     + json.dumps(res.get("headways") or {},
+                                  ensure_ascii=False))
         ragres = res.get("rag") or {}
         if ragres.get("available"):
             parts.append(_rag_block(ragres))
@@ -466,8 +507,33 @@ def fallback_reply(intent: str, slots: dict, tool_out: dict) -> str:
         return "\n".join(lines)
     if tool == "crowding":
         hw = res.get("headways") or {}
-        lines = ["Indikator kepadatan (label proksi — data penumpang per "
-                 "jam TIDAK tersedia):"]
+        ests = [e for e in (res.get("estimates") or []) if e.get("available")]
+        dails = [d for d in (res.get("daily") or []) if d.get("available")]
+        if ests:
+            lines = ["Estimasi kepadatan (model crowding-v1; label proksi — "
+                     "pola dari jendela sibuk & rasio akhir pekan "
+                     "terdokumentasi, bukan pengukuran):"]
+            for e in ests:
+                scope = (e.get("scope") or {}).get("name") or "Jabodetabek"
+                srcs = [b["source_id"] for b in e.get("basis", [])
+                        if b.get("source_id")]
+                s = f" [{srcs[0]}]" if srcs else ""
+                lines.append(f"- {scope}, {e['day_type']} {e['time']}: "
+                             f"{e['category'].upper()} (skor {e['score']}, "
+                             f"kepercayaan {e['confidence']}){s}")
+        elif dails:
+            lines = ["Pola harian kepadatan (model crowding-v1; label "
+                     "proksi, bukan pengukuran):"]
+            for d in dails:
+                scope = (d.get("scope") or {}).get("name") or "Jabodetabek"
+                rg = d.get("ranges") or {}
+                bits = [f"{cat}: {', '.join(rg.get(cat, [])) or '-'}"
+                        for cat in ("padat", "sedang", "longgar")]
+                lines.append(f"- {scope} ({d.get('day_type')}): "
+                             + "; ".join(bits))
+        else:
+            lines = ["Indikator kepadatan (label proksi — data penumpang "
+                     "per jam TIDAK tersedia):"]
         for ln in hw.get("lines", []):
             peak = ln["periods"].get("peak") or {}
             if not peak:
@@ -546,7 +612,7 @@ def handle_chat(message: str, session_id: str | None, net,
 
     llm_used = False
     if llm.configured():
-        ctx = _build_context(tool_out)
+        ctx = _build_context(tool_out, slots)
         hist = "\n".join(f"{'P' if h['role'] == 'user' else 'J'}: "
                          f"{h['content']}" for h in history[-4:]) or "(kosong)"
         try:

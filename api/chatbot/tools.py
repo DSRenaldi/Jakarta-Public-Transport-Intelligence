@@ -8,6 +8,7 @@ LLM hanya menyusun bahasanya (prinsip §9 context.md).
 import re
 
 from db import connect
+import crowding as _crowding
 from route_query import match_stops
 from routing import Network
 from rag_query import rag_search
@@ -212,6 +213,39 @@ def rag(query: str, top_k: int = 4, mode: str | None = None) -> dict:
             "citation": r["citation"],
         } for r in results],
     }
+
+
+def crowding_estimate(line: str | None = None, mode: str | None = None,
+                      t: str | None = None,
+                      day_type: str = "weekday") -> dict:
+    """Estimasi kepadatan model crowding-v1 (proksi berlabel)."""
+    if not line and not mode:
+        return {"available": False,
+                "note": "butuh mode atau jalur (estimasi tanpa scope tidak "
+                        "bermakna — jendela sibuk terdokumentasi per moda)"}
+    try:
+        out = _crowding.estimate(line_id=line, mode=mode, t=t,
+                                 day_type=day_type)
+        out["available"] = True
+        return out
+    except Exception as e:  # noqa: BLE001
+        return {"available": False, "note": f"estimasi gagal: {e}"}
+
+
+def crowding_daily(line: str | None = None, mode: str | None = None,
+                   day_type: str = "weekday") -> dict:
+    """Ringkasan harian (rentang jam per kategori) — dipakai ketika
+    pengguna tidak menyebut jam spesifik."""
+    if not line and not mode:
+        return {"available": False,
+                "note": "butuh mode atau jalur untuk ringkasan harian"}
+    try:
+        out = _crowding.daily_summary(line_id=line, mode=mode,
+                                      day_type=day_type)
+        out["available"] = True
+        return out
+    except Exception as e:  # noqa: BLE001
+        return {"available": False, "note": f"ringkasan harian gagal: {e}"}
 
 
 def rag_sources(rag_result: dict) -> list[dict]:

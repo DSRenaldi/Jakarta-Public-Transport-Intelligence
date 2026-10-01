@@ -36,6 +36,7 @@ from rag_query import rag_search  # noqa: E402
 from route_query import match_stops  # noqa: E402
 from routing import Network  # noqa: E402
 from chatbot import chat as chatbot_chat  # noqa: E402
+import crowding as crowding_model  # noqa: E402
 
 APP_VERSION = "0.1.0"
 RIDER_CSV = ROOT / "data" / "processed" / "ridership_monthly.csv"
@@ -174,6 +175,7 @@ class RouteRequest(BaseModel):
     origin_mode: str | None = None
     dest_mode: str | None = None
     top: int = 5
+    dep_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class RagRequest(BaseModel):
@@ -287,6 +289,8 @@ def route(req: RouteRequest):
         return {"status": "no_route", "message": res.message,
                 "origin": _stop_brief(net, origin),
                 "dest": _stop_brief(net, dest)}
+    dep = _parse_dep_time(req.dep_time)
+    crowd_segs = crowding_model.annotate_route_segments(res.segments, dep)
     return {
         "status": "ok",
         "preference": req.prefer,
@@ -297,9 +301,67 @@ def route(req: RouteRequest):
         "fare": res.fare,
         "transfers": res.transfers,
         "segments": [_serialize_segment(net, s) for s in res.segments],
+        "crowding": {
+            "model_version": crowding_model.MODEL_VERSION,
+            "data_label": "proksi",
+            "reference_time": (f"{dep:%H:%M}" if dep else "sekarang"),
+            "segments": crowd_segs,
+            "note": "Estimasi kepadatan per segmen (proksi pola; bukan "
+                    "pengukuran). Lihat /api/crowding/status.",
+        },
         "disclaimer": DISCLAIMER,
         "computed_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+def _parse_dep_time(s: str | None):
+    if not s:
+        return None
+    hh, mm = s.split(":")
+    return datetime.now().replace(hour=int(hh), minute=int(mm),
+                                  second=0, microsecond=0)
+
+
+@app.get("/api/crowding/estimate")
+def crowding_estimate(line: str | None = None, mode: str | None = None,
+                      time: str | None = Query(default=None,
+                                               alias="time",
+                                               pattern=r"^([01]\d|2[0-3]):[0-5]\d$"),
+                      day: str = "weekday"):
+    """Estimasi kepadatan (proksi) utk satu jalur atau moda.
+
+    label selalu `proksi` (data per jam tidak tersedia — §27.1)."""
+    if not line and not mode:
+        raise HTTPException(422, "berikan line atau mode")
+    if mode and mode not in MODES:
+        raise HTTPException(422, f"mode harus salah satu dari {MODES}")
+    if day not in ("weekday", "weekend"):
+        raise HTTPException(422, "day harus weekday|weekend")
+    t = _parse_dep_time(time)
+    if t is None:
+        from datetime import time as _t
+        hh, mm = (time or "12:00").split(":")
+        t = _t(int(hh), int(mm))
+    return crowding_model.estimate(line_id=line, mode=mode, t=t, day_type=day)
+
+
+@app.get("/api/crowding/profile")
+def crowding_profile(line: str | None = None, mode: str | None = None,
+                     day: str = "weekday"):
+    """Profil kepadatan 30 mnt/hari (untuk dashboard/visualisasi)."""
+    if not line and not mode:
+        raise HTTPException(422, "berikan line atau mode")
+    if mode and mode not in MODES:
+        raise HTTPException(422, f"mode harus salah satu dari {MODES}")
+    if day not in ("weekday", "weekend"):
+        raise HTTPException(422, "day harus weekday|weekend")
+    return crowding_model.daily_profile(line_id=line, mode=mode,
+                                        day_type=day)
+
+
+@app.get("/api/crowding/status")
+def crowding_status():
+    return crowding_model.status()
 
 
 @app.post("/api/rag")

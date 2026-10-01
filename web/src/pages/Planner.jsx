@@ -196,18 +196,19 @@ export default function Planner() {
   const [oMode, setOMode] = useState(null)
   const [dMode, setDMode] = useState(null)
   const [prefer, setPrefer] = useState('tercepat')
+  const [depTime, setDepTime] = useState('')
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const lastReq = useRef(null)
 
-  const run = async (o = origin, d = dest, pref = prefer) => {
+  const run = async (o = origin, d = dest, pref = prefer, dep = depTime) => {
     if (!o || !d) return
     setBusy(true)
     setError(null)
-    lastReq.current = { o, d, pref }
+    lastReq.current = { o, d, pref, dep }
     try {
-      const r = await findRoute({ origin: dispName(o), dest: dispName(d), prefer: pref, origin_mode: oMode, dest_mode: dMode })
+      const r = await findRoute({ origin: dispName(o), dest: dispName(d), prefer: pref, origin_mode: oMode, dest_mode: dMode, dep_time: dep })
       setResult(r)
     } catch (e) {
       setError(e.message)
@@ -215,6 +216,13 @@ export default function Planner() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // indeks segmen ride → anotasi kepadatan (urutan ride dipertahankan API)
+  const crowdFor = (seg) => {
+    if (seg.type !== 'ride' || !result?.crowding?.segments) return null
+    const idx = result.segments.filter((s) => s.type === 'ride').indexOf(seg)
+    return result.crowding.segments[idx] || null
   }
 
   // pilih kandidat saat hasil ambigu → langsung cari ulang
@@ -226,7 +234,7 @@ export default function Planner() {
     const o = side === 'origin' ? stop : req.o
     const d = side === 'dest' ? stop : req.d
     setBusy(true)
-    findRoute({ origin: dispName(o), dest: dispName(d), prefer: req.pref, origin_mode: oMode, dest_mode: dMode })
+    findRoute({ origin: dispName(o), dest: dispName(d), prefer: req.pref, origin_mode: oMode, dest_mode: dMode, dep_time: req.dep })
       .then(setResult)
       .catch((e) => { setError(e.message); setResult(null) })
       .finally(() => setBusy(false))
@@ -247,6 +255,14 @@ export default function Planner() {
               <select className="mode-select pref-select" value={prefer} onChange={(e) => setPrefer(e.target.value)}>
                 {PREFS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
+              <input
+                type="time"
+                className="mode-select pref-select"
+                value={depTime}
+                onChange={(e) => setDepTime(e.target.value)}
+                title="Jam keberangkatan (untuk estimasi kepadatan per segmen; kosong = sekarang)"
+                aria-label="Jam keberangkatan (opsional)"
+              />
               <button className="btn primary" disabled={!canRun} onClick={() => run()}>
                 {busy ? 'Mencari…' : 'Cari rute'}
               </button>
@@ -304,12 +320,31 @@ export default function Planner() {
                       <span className="seg-time">
                         {fmtTime(s.travel_sec)}{s.wait_sec > 0 ? ` + tunggu ±${fmtTime(s.wait_sec)}` : ''}
                       </span>
+                      {(() => {
+                        const c = crowdFor(s)
+                        return c ? (
+                          <span
+                            className={`crowd-badge crowd-${c.category}`}
+                            title={`Estimasi kepadatan saat naik (${c.board_time}) — model crowding-v1, label proksi, kepercayaan ${c.confidence}; bukan pengukuran`}
+                          >
+                            {c.category} · naik {c.board_time} <em>(proksi)</em>
+                          </span>
+                        ) : null
+                      })()}
                     </div>
                   )}
                 </li>
               ))}
             </ol>
             <p className="note">{result.disclaimer}</p>
+            {result.crowding?.segments?.length > 0 && (
+              <p className="note small">
+                Kepadatan per segmen = estimasi model crowding-v1 (label
+                proksi — pola dari jendela sibuk &amp; rasio akhir pekan
+                terdokumentasi; bukan pengukuran). Acuan keberangkatan:
+                {result.crowding.reference_time}.
+              </p>
+            )}
           </section>
 
           <section className="card">

@@ -437,3 +437,8 @@
 {"q": "halte favorit transjakarta 2025", "intent": "station_ranking"}
 {"q": "stasiun dengan tap out terbanyak", "intent": "station_ranking"}
 {"q": "apa itu sistem tiket nasional", "intent": "policy_document"}
+{"q": "jam berapa krl biasanya longgar?", "intent": "crowding"}
+{"q": "biasanya mrt rame jam berapa", "intent": "crowding"}
+{"q": "krl biasanya sepi jam berapa", "intent": "crowding"}
+{"q": "mrt biasanya padat atau longgar di weekend", "intent": "crowding"}
+{"q": "transjakarta biasanya ramai jam berapa", "intent": "crowding"}

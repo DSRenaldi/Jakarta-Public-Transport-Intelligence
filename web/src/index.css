@@ -173,6 +173,24 @@ select.mode-select:focus, input.stop-input:focus, input.rag-input:focus, .btn:fo
   letter-spacing: 0.3px;
 }
 
+/* badge estimasi kepadatan per segmen (crowding-v1, label proksi) */
+.crowd-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.crowd-badge em { font-style: normal; opacity: 0.7; font-weight: 400; }
+.crowd-longgar   { background: #eef7ee; color: #1d7a35; border-color: #bfe3c8; }
+.crowd-sedang    { background: #fff7e6; color: #9a6700; border-color: #f2dcab; }
+.crowd-padat     { background: #fdecec; color: #c0262d; border-color: #f3c1c3; }
+.crowd-sangat_padat { background: #7a1220; color: #fff; border-color: #7a1220; }
+
 .cand {
   position: absolute;
   z-index: 1100;
