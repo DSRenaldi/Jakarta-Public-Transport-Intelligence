@@ -7,6 +7,7 @@ LLM hanya menyusun bahasanya (prinsip §9 context.md).
 """
 import re
 
+from db import connect
 from route_query import match_stops
 from routing import Network
 from rag_query import rag_search
@@ -230,3 +231,153 @@ def rag_sources(rag_result: dict) -> list[dict]:
             "fresh_label": c.get("fresh_label"),
         })
     return srcs
+
+
+# ---------- tool terstruktur: tarif & jadwal (dari Postgres) ----------
+# Data ini sudah ada di DB (tabel fares / line_headways / stop_times) tapi
+# sebelumnya tidak dipakai chatbot — hanya RAG dokumen, yang korpusnya
+# terbatas. LLM tetap tidak menyentuh angka: tool mengembalikan data
+# terstruktur + sumber (prinsip §9 context.md).
+
+def tool_fare(mode: str | None = None) -> dict:
+    """Tarif per moda dari tabel fares (min/max/flat + dasar hukum + sumber).
+
+    Baris di-group per (moda, operator, tipe, harga); n_routes = jumlah
+    baris asal (GTFS TransJakarta punya banyak baris per harga).
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        sql = """SELECT mode_id, operator_id, fare_type, price_idr,
+                        valid_from, legal_basis, source_id, notes
+                 FROM fares"""
+        args: tuple = ()
+        if mode:
+            sql += " WHERE mode_id = %s"
+            args = (mode.upper(),)
+        sql += " ORDER BY mode_id, operator_id, fare_type"
+        cur.execute(sql, args)
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return {"available": False,
+                "note": f"tabel fares tidak punya baris untuk mode={mode}"}
+    agg: dict[tuple, dict] = {}
+    for r in rows:
+        k = (r[0], r[1], r[2], r[3])
+        e = agg.setdefault(k, {
+            "mode_id": r[0], "operator_id": r[1], "fare_type": r[2],
+            "price_idr": r[3],
+            "valid_from": r[4].isoformat() if r[4] else None,
+            "legal_basis": r[5] or None, "source_id": r[6] or None,
+            "notes": [] if not r[7] else [r[7]],
+            "n_entries": 0,
+        })
+        e["n_entries"] += 1
+        if r[5] and e["legal_basis"] != r[5]:
+            e["legal_basis"] = None  # beragam per baris
+        if r[7] and r[7] not in e["notes"]:
+            e["notes"].append(r[7])
+    entries = list(agg.values())
+    for e in entries:
+        if len(e["notes"]) > 1:
+            e["notes"] = e["notes"][:3]
+    zero = [e for e in entries if e["price_idr"] == 0]
+    note = ("Estimasi tarif pada perhitungan rute memakai flat minimum per "
+            "moda (label proksi); angka di atas dari tabel fares JPTI "
+            "sesuai sumber & periode berlaku.")
+    if zero:
+        note += (" Baris Rp0 (TransJakarta/GTFS) = rute tanpa aturan tarif "
+                 "di file GTFS — bukan layanan gratis.")
+    return {"available": True, "mode": (mode or "SEMUA").upper(),
+            "entries": entries, "note": note}
+
+
+def _line_mode(line_id: str) -> str | None:
+    if line_id.startswith("KRL_"):
+        return "KRL"
+    if line_id.startswith(("LRTJ_", "LRTB_")):
+        return "LRT"
+    if line_id.startswith("MRT_"):
+        return "MRT"
+    return None
+
+
+def tool_schedule(mode: str | None = None, net: Network | None = None) -> dict:
+    """Headway & jendela sibuk per jalur (line_headways) + jam pelayanan
+    TransJakarta dari GTFS (stop_times).
+
+    Moda rail TIDAK punya tabel perjalanan lengkap di DB; headway + jendela
+    sibuk adalah proksi jadwal/kapasitas (label proksi), bukan data
+    penumpang.
+    """
+    conn = connect()
+    try:
+        cur = conn.cursor()
+        cur.execute("""SELECT line_id, direction, period_type, headway_min,
+                              peak_windows, source_id, notes
+                       FROM line_headways
+                       ORDER BY line_id, period_type, direction""")
+        hw = cur.fetchall()
+        cur.execute("""SELECT MIN(st.departure_time), MAX(st.departure_time)
+                       FROM stop_times st JOIN trips t USING (trip_id)""")
+        brt_range = cur.fetchone()
+    finally:
+        conn.close()
+
+    def display(line_id: str) -> str:
+        if net is not None:
+            d = net.line_display.get(line_id)
+            if d:
+                return d
+            n = net.line_name.get(line_id)
+            if n:
+                return n
+        return line_id
+
+    mu = (mode or "").upper()
+
+    def pick(line_id: str) -> bool:
+        if not mu:
+            return True
+        if mu == "LRT":
+            return line_id.startswith(("LRTJ_", "LRTB_"))
+        return _line_mode(line_id) == mu
+
+    lines: dict[str, dict] = {}
+    for line_id, direction, period, headway, windows, src, notes in hw:
+        if not pick(line_id):
+            continue
+        e = lines.setdefault(line_id, {
+            "line_id": line_id, "line": display(line_id),
+            "mode": _line_mode(line_id), "periods": {},
+            "sources": [], "notes": [],
+        })
+        e["periods"][period] = {"headway_min": headway,
+                                "peak_windows": windows,
+                                "direction": direction}
+        if src and src not in e["sources"]:
+            e["sources"].append(src)
+        if notes and notes not in e["notes"]:
+            e["notes"].append(notes)
+
+    out = {
+        "available": bool(lines) or mu in ("", "BRT"),
+        "mode": (mode or "SEMUA").upper(),
+        "lines": list(lines.values()),
+        "note": ("headway = jarak antar kedatangan (proksi kapasitas/jadwal, "
+                 "bukan data penumpang). Moda rail: jadwal perjalanan "
+                 "lengkap belum ada di DB — hanya headway + jendela sibuk "
+                 "dari rilis resmi. Jendela sibuk = periode yang cenderung "
+                 "lebih padat (proksi)."),
+    }
+    if mu in ("", "BRT") and brt_range and brt_range[0]:
+        out["brt"] = {
+            "earliest_departure": brt_range[0].strftime("%H:%M"),
+            "latest_departure": brt_range[1].strftime("%H:%M"),
+            "source_id": "SRC-TJ-02",
+            "note": ("Jadwal GTFS TransJakarta terkini; jam per koridor "
+                     "berbeda (sebagian koridor beroperasi nyaris 24 jam)."),
+        }
+    return out

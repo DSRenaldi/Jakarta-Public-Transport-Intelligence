@@ -12,6 +12,7 @@ Konfigurasi (di .env, jangan disalin ke memori/dokumen):
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -90,22 +91,35 @@ class LLMError(RuntimeError):
 
 def chat(messages: list[dict], temperature: float = 0.15,
          max_tokens: int = 900) -> str:
-    """Satu panggilan chat completion. messages = [{role, content}]."""
+    """Satu panggilan chat completion; 1x retry utk error jaringan /
+    rate-limit / error server (kesalahan DNS sesaat, dsb.)."""
     env = _env()
     key = env.get("GROQ_API_KEY", "").strip()
     if not key:
         raise LLMError("GROQ_API_KEY belum diset di .env")
-    try:
-        resp = httpx.post(
-            GROQ_URL,
-            headers={"Authorization": f"Bearer {key}",
-                     "Content-Type": "application/json"},
-            json={"model": model_name(), "messages": messages,
-                  "temperature": temperature, "max_tokens": max_tokens},
-            timeout=TIMEOUT_SEC,
-        )
-    except httpx.HTTPError as e:
-        raise LLMError(f"jaringan ke Groq gagal: {e}") from e
+    resp = None
+    for attempt in (1, 2):
+        try:
+            resp = httpx.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"},
+                json={"model": model_name(), "messages": messages,
+                      "temperature": temperature, "max_tokens": max_tokens},
+                timeout=TIMEOUT_SEC,
+            )
+        except httpx.HTTPError as e:
+            if attempt == 1:
+                time.sleep(1.5)
+                continue
+            raise LLMError(f"jaringan ke Groq gagal: {e}") from e
+        if resp.status_code in (408, 425, 429, 500, 502, 503, 504) \
+                and attempt == 1:
+            time.sleep(2.0)
+            continue
+        break
+    if resp is None:
+        raise LLMError("tidak ada respons dari Groq")
     if resp.status_code != 200:
         raise LLMError(f"Groq HTTP {resp.status_code}: "
                        f"{resp.text[:300]}")

@@ -131,6 +131,7 @@ export default function ChatPage() {
                       {m.data_label ? ` · data ${m.data_label}` : ''}
                       {m.latency_ms != null ? ` · ${(m.latency_ms / 1000).toFixed(1)} dtk` : ''}
                       {m.cache_status === 'exact_hit' ? ' · cached' : ''}
+                      {m.llm === false ? ' · template' : ''}
                     </p>
                   )}
                   {m.sources?.length > 0 && (
