@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+"""Klien LLM untuk chatbot JPTI — Groq (endpoint OpenAI-compatible).
+
+LLM HANYA menyusun bahasa dari konteks yang sudah dikumpulkan tool
+(routing/DB/RAG); bukan sumber angka (prinsip §7, §9 context.md).
+Ekstraksi slot dilakukan dengan permintaan JSON ketat.
+
+Konfigurasi (di .env, jangan disalin ke memori/dokumen):
+  GROQ_API_KEY=***
+  GROQ_MODEL=llama-3.3-70b-versatile   # opsional
+"""
+import json
+import re
+import sys
+from pathlib import Path
+
+import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pipelines"))
+from db import load_env  # noqa: E402
+
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+TIMEOUT_SEC = 90.0
+
+
+def _env() -> dict:
+    return load_env()
+
+
+def configured() -> bool:
+    return bool(_env().get("GROQ_API_KEY", "").strip())
+
+
+def model_name() -> str:
+    return _env().get("GROQ_MODEL", "").strip() or DEFAULT_MODEL
+
+
+class LLMError(RuntimeError):
+    pass
+
+
+def chat(messages: list[dict], temperature: float = 0.15,
+         max_tokens: int = 900) -> str:
+    """Satu panggilan chat completion. messages = [{role, content}]."""
+    env = _env()
+    key = env.get("GROQ_API_KEY", "").strip()
+    if not key:
+        raise LLMError("GROQ_API_KEY belum diset di .env")
+    try:
+        resp = httpx.post(
+            GROQ_URL,
+            headers={"Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json"},
+            json={"model": model_name(), "messages": messages,
+                  "temperature": temperature, "max_tokens": max_tokens},
+            timeout=TIMEOUT_SEC,
+        )
+    except httpx.HTTPError as e:
+        raise LLMError(f"jaringan ke Groq gagal: {e}") from e
+    if resp.status_code != 200:
+        raise LLMError(f"Groq HTTP {resp.status_code}: "
+                       f"{resp.text[:300]}")
+    data = resp.json()
+    try:
+        return data["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError) as e:
+        raise LLMError(f"respons Groq tidak terduga: {str(data)[:300]}") from e
+
+
+def extract_json(system: str, user: str, max_tokens: int = 300) -> dict:
+    """Panggilan LLM yang diwajibkan menjawab JSON object; parse robust."""
+    raw = chat([
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ], temperature=0.0, max_tokens=max_tokens)
+    # buang code fence bila ada
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    if m:
+        raw = m.group(1)
+    else:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start == -1 or end <= start:
+            raise LLMError(f"LLM tidak menjawab JSON: {raw[:200]}")
+        raw = raw[start:end + 1]
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise LLMError(f"JSON LLM tidak valid: {e}: {raw[:200]}") from e
+    return obj if isinstance(obj, dict) else {}

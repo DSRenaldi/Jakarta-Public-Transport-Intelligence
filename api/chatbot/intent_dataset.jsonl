@@ -1,0 +1,439 @@
+{"q": "bagaimana dari lebak bulus ke dukuh atas", "intent": "route_planning"}
+{"q": "rute dari fatmawati ke bundaran hi", "intent": "route_planning"}
+{"q": "berapa lama dari blok m ke bogor", "intent": "route_planning"}
+{"q": "berapa kali transit dari blok a ke cawang", "intent": "route_planning"}
+{"q": "mana yang lebih cepat dari setiabudi astra ke dukuh atas, mrt atau krl", "intent": "route_planning"}
+{"q": "cara ke cikarang dari blok m", "intent": "route_planning"}
+{"q": "bagaimana cara dari lebak bulus ke cikarang", "intent": "route_planning"}
+{"q": "apakah bisa langsung dari fatmawati ke cawang", "intent": "route_planning"}
+{"q": "rute tercepat dari bundaran hi ke bogor", "intent": "route_planning"}
+{"q": "rute termurah dari dukuh atas ke bekasi", "intent": "route_planning"}
+{"q": "kalau saya berangkat pukul 17.30 dari lebak bulus ke dukuh atas, berapa lama", "intent": "route_planning"}
+{"q": "berapa lama dan berapa tarif dari blok m ke harjamukti", "intent": "route_planning"}
+{"q": "dari cipete raya ke senayan pakai mrt berapa menit", "intent": "route_planning"}
+{"q": "bagaimana dari kelapa gading ke manggarai", "intent": "route_planning"}
+{"q": "rute dari depok ke jakarta kota", "intent": "route_planning"}
+{"q": "berapa lama dari tangerang ke cawang", "intent": "route_planning"}
+{"q": "apakah dari parungpanjang bisa ke cikarang tanpa transit", "intent": "route_planning"}
+{"q": "cara naik mrt dari fatmawati ke istora mandiri", "intent": "route_planning"}
+{"q": "bagaimana dari rasuna said ke dukuh atas", "intent": "route_planning"}
+{"q": "rute dari cawang ke tmii", "intent": "route_planning"}
+{"q": "berapa lama dari cikunir ke harjamukti", "intent": "route_planning"}
+{"q": "perjalanan dari blok m ke bogor pakai moda apa yang paling cepat", "intent": "route_planning"}
+{"q": "saya di lebak bulus mau ke senayan, bagaimana jalannya", "intent": "route_planning"}
+{"q": "dari fatmawati ke bundaran hi naik apa", "intent": "route_planning"}
+{"q": "rute dari pancoran ke cikoko", "intent": "route_planning"}
+{"q": "bagaimana dari jatinegara ke manggarai", "intent": "route_planning"}
+{"q": "berapa lama dari depok baru ke tanah abang", "intent": "route_planning"}
+{"q": "cara dari jakarta kota ke manggarai", "intent": "route_planning"}
+{"q": "rute lrt dari velodrome ke manggarai", "intent": "route_planning"}
+{"q": "bagaimana dari pulomas ke kelapa gading", "intent": "route_planning"}
+{"q": "berapa kali transfer dari kalideres ke pulo mas", "intent": "route_planning"}
+{"q": "dari pluit ke tangerang bagaimana", "intent": "route_planning"}
+{"q": "rute dari cilejit ke maja", "intent": "route_planning"}
+{"q": "berapa lama dari rangkasbitung ke jakarta kota", "intent": "route_planning"}
+{"q": "bagaimana dari bojonggede ke parungpanjang", "intent": "route_planning"}
+{"q": "rute dari cicayur ke nambo", "intent": "route_planning"}
+{"q": "dari citayam ke jakarta kota pakai apa", "intent": "route_planning"}
+{"q": "bagaimana dari cikarang ke cawang", "intent": "route_planning"}
+{"q": "rute dari bekasi timur ke cikarang", "intent": "route_planning"}
+{"q": "berapa lama dari tambun ke cikarang", "intent": "route_planning"}
+{"q": "dari cilebut ke citayam bagaimana", "intent": "route_planning"}
+{"q": "rute dari cisauk ke parungpanjang", "intent": "route_planning"}
+{"q": "bagaimana dari serpong ke bojong indah", "intent": "route_planning"}
+{"q": "dari pondok cina ke citayam", "intent": "route_planning"}
+{"q": "rute dari bojonggede ke cisauk", "intent": "route_planning"}
+{"q": "berapa lama dari tenjo ke cilebut", "intent": "route_planning"}
+{"q": "bagaimana dari maja ke cilejit", "intent": "route_planning"}
+{"q": "dari bekasi ke cikarang berapa lama", "intent": "route_planning"}
+{"q": "rute dari klender ke cawang", "intent": "route_planning"}
+{"q": "bagaimana dari duren kalibata ke pasar minggu", "intent": "route_planning"}
+{"q": "dari rawa buaya ke lenteng agung bagaimana", "intent": "route_planning"}
+{"q": "rute dari tanjung barat ke rawa buaya", "intent": "route_planning"}
+{"q": "berapa lama dari depok ke parungpanjang", "intent": "route_planning"}
+{"q": "bagaimana dari cikini ke gang sentiong", "intent": "route_planning"}
+{"q": "rute dari juanda ke mangga besar", "intent": "route_planning"}
+{"q": "dari cikini ke tanah abang berapa lama", "intent": "route_planning"}
+{"q": "bagaimana naik mrt dari lebak bulus ke senayan", "intent": "route_planning"}
+{"q": "rute dari haji nawi ke blok a", "intent": "route_planning"}
+{"q": "dari asean headquarter ke bendungan hilir bagaimana", "intent": "route_planning"}
+{"q": "bagaimana dari dukuh atas ke bundaran hi", "intent": "route_planning"}
+{"q": "berapa jumlah penumpang mrt tahun 2025", "intent": "ridership_statistics"}
+{"q": "berapa penumpang krl bulan desember 2025", "intent": "ridership_statistics"}
+{"q": "tren penumpang lrt 2024 sampai 2026", "intent": "ridership_statistics"}
+{"q": "rata rata harian penumpang transjakarta 2025", "intent": "ridership_statistics"}
+{"q": "apakah penumpang mrt naik dari 2024 ke 2025", "intent": "ridership_statistics"}
+{"q": "berapa pertumbuhan penumpang krl tahun 2025", "intent": "ridership_statistics"}
+{"q": "berapa penumpang mrt bulan januari 2026", "intent": "ridership_statistics"}
+{"q": "tren bulanan penumpang krl 2025", "intent": "ridership_statistics"}
+{"q": "berapa total pelanggan transjakarta 2025", "intent": "ridership_statistics"}
+{"q": "penumpang lrt jakarta tahun lalu berapa", "intent": "ridership_statistics"}
+{"q": "data penumpang mrt 2024", "intent": "ridership_statistics"}
+{"q": "apakah penumpang krl turun di 2025", "intent": "ridership_statistics"}
+{"q": "rata rata penumpang harian mrt 2025", "intent": "ridership_statistics"}
+{"q": "berapa penumpang lrt bulan juni 2025", "intent": "ridership_statistics"}
+{"q": "jumlah penumpang transjakarta tahun 2024", "intent": "ridership_statistics"}
+{"q": "tren penumpang mrt dari 2024 sampai 2026", "intent": "ridership_statistics"}
+{"q": "perbandingan bulanan penumpang krl semester 1 2025", "intent": "ridership_statistics"}
+{"q": "berapa angka penumpang mrt desember 2025", "intent": "ridership_statistics"}
+{"q": "statistik penumpang lrt 2025", "intent": "ridership_statistics"}
+{"q": "berapa banyak orang yang naik mrt per bulan", "intent": "ridership_statistics"}
+{"q": "pertumbuhan tahunan penumpang transjakarta", "intent": "ridership_statistics"}
+{"q": "apakah data penumpang krl tersedia per bulan", "intent": "ridership_statistics"}
+{"q": "total penumpang mrt 2026 sejauh ini", "intent": "ridership_statistics"}
+{"q": "berapa penumpang krl 2024", "intent": "ridership_statistics"}
+{"q": "tren penumpang mrt 5 bulan terakhir", "intent": "ridership_statistics"}
+{"q": "berapa rata rata penumpang harian krl 2025", "intent": "ridership_statistics"}
+{"q": "jumlah pelanggan lrt jakarta per bulan 2025", "intent": "ridership_statistics"}
+{"q": "berapa penumpang transjakarta per hari rata rata", "intent": "ridership_statistics"}
+{"q": "data historis penumpang mrt", "intent": "ridership_statistics"}
+{"q": "berapa lonjakan penumpang mrt setelah lebaran", "intent": "ridership_statistics"}
+{"q": "berapa penumpang krl bulan maret 2026", "intent": "ridership_statistics"}
+{"q": "tren penumpang lrt jabodebek 2025", "intent": "ridership_statistics"}
+{"q": "angka penumpang mrt 2025 dibanding tahun sebelumnya", "intent": "ridership_statistics"}
+{"q": "berapa penumpang total semua moda 2025", "intent": "ridership_statistics"}
+{"q": "berapa kenaikan penumpang mrt dari januari ke desember 2025", "intent": "ridership_statistics"}
+{"q": "rata rata bulanan krl 2025", "intent": "ridership_statistics"}
+{"q": "berapa penumpang mrt pada weekend dan weekday", "intent": "ridership_statistics"}
+{"q": "total ridership lrt tahun 2025", "intent": "ridership_statistics"}
+{"q": "berapa persen pertumbuhan penumpang krl", "intent": "ridership_statistics"}
+{"q": "data penumpang transjakarta desember 2025", "intent": "ridership_statistics"}
+{"q": "moda apa yang penumpangnya paling banyak tahun 2025", "intent": "mode_comparison"}
+{"q": "perbandingan penumpang mrt dan krl 2025", "intent": "mode_comparison"}
+{"q": "mana yang lebih ramai, lrt atau mrt, tahun lalu", "intent": "mode_comparison"}
+{"q": "moda transportasi umum apa yang pertumbuhannya paling tinggi", "intent": "mode_comparison"}
+{"q": "bandingkan tren penumpang transjakarta dan mrt 2025", "intent": "mode_comparison"}
+{"q": "mrt atau krl, mana penumpangnya lebih banyak", "intent": "mode_comparison"}
+{"q": "perbandingan antar moda 2025", "intent": "mode_comparison"}
+{"q": "moda apa yang naik penumpangnya paling besar tahun ini", "intent": "mode_comparison"}
+{"q": "bandingkan krl dan transjakarta", "intent": "mode_comparison"}
+{"q": "lebih banyak penumpang mrt atau lrt", "intent": "mode_comparison"}
+{"q": "moda paling populer di jakarta 2025", "intent": "mode_comparison"}
+{"q": "perbandingan pertumbuhan mrt krl lrt dan brt", "intent": "mode_comparison"}
+{"q": "moda apa yang penumpangnya naik signifikan 2025", "intent": "mode_comparison"}
+{"q": "bandingkan angka penumpang semua moda 2024", "intent": "mode_comparison"}
+{"q": "mana yang tumbuh paling cepat, mrt atau krl", "intent": "mode_comparison"}
+{"q": "perbandingan moda transportasi 2026", "intent": "mode_comparison"}
+{"q": "moda transportasi umum paling banyak penumpangnya", "intent": "mode_comparison"}
+{"q": "mrt vs krl jumlah penumpang", "intent": "mode_comparison"}
+{"q": "mana yang lebih unggul penumpangnya tahun 2025", "intent": "mode_comparison"}
+{"q": "bandingkan mrt, krl, lrt, dan transjakarta", "intent": "mode_comparison"}
+{"q": "moda apa yang paling banyak diminati 2025", "intent": "mode_comparison"}
+{"q": "perbandingan bulanan antar moda 2025", "intent": "mode_comparison"}
+{"q": "krl dan mrt mana yang lebih tinggi penumpangnya", "intent": "mode_comparison"}
+{"q": "moda dengan pertumbuhan terbaik", "intent": "mode_comparison"}
+{"q": "bandingkan tren semua moda", "intent": "mode_comparison"}
+{"q": "lebih cepat naik penumpangnya mrt atau transjakarta", "intent": "mode_comparison"}
+{"q": "perbandingan 2024 vs 2025 per moda", "intent": "mode_comparison"}
+{"q": "moda apa yang turun penumpangnya", "intent": "mode_comparison"}
+{"q": "ranking moda berdasarkan penumpang 2025", "intent": "mode_comparison"}
+{"q": "mana yang penumpangnya paling konsisten", "intent": "mode_comparison"}
+{"q": "stasiun krl mana yang paling ramai", "intent": "station_ranking"}
+{"q": "halte transjakarta apa yang paling banyak penumpangnya", "intent": "station_ranking"}
+{"q": "stasiun mrt mana yang paling sibuk", "intent": "station_ranking"}
+{"q": "5 stasiun krl tersibuk di jakarta", "intent": "station_ranking"}
+{"q": "stasiun mana yang paling banyak tap in", "intent": "station_ranking"}
+{"q": "halte tersibuk di koridor 1", "intent": "station_ranking"}
+{"q": "stasiun krl apa yang jadi tujuan favorit", "intent": "station_ranking"}
+{"q": "stasiun mrt mana yang paling sering dipakai", "intent": "station_ranking"}
+{"q": "halte transjakarta paling ramai di jakarta", "intent": "station_ranking"}
+{"q": "stasiun mana yang paling padat penumpangnya", "intent": "station_ranking"}
+{"q": "peringkat stasiun krl berdasarkan penumpang", "intent": "station_ranking"}
+{"q": "stasiun apa yang paling ramai di pagi hari", "intent": "station_ranking"}
+{"q": "halte apa yang paling ramai di jam sibuk", "intent": "station_ranking"}
+{"q": "stasiun favorit penumpang mrt", "intent": "station_ranking"}
+{"q": "stasiun mana yang paling banyak dilalui", "intent": "station_ranking"}
+{"q": "stasiun krl apa yang paling padat", "intent": "station_ranking"}
+{"q": "ranking halte transjakarta 2025", "intent": "station_ranking"}
+{"q": "stasiun mana yang aktivitasnya paling tinggi", "intent": "station_ranking"}
+{"q": "stasiun utama mana yang paling sibuk", "intent": "station_ranking"}
+{"q": "halte apa yang paling banyak dilewati penumpang", "intent": "station_ranking"}
+{"q": "stasiun mana yang jadi simpul tersibuk", "intent": "station_ranking"}
+{"q": "stasiun dengan tap in terbanyak", "intent": "station_ranking"}
+{"q": "berapa tarif mrt sekarang", "intent": "fare_query"}
+{"q": "harga tiket krl ke bogor", "intent": "fare_query"}
+{"q": "tarif lrt jakarta berapa", "intent": "fare_query"}
+{"q": "apakah ada tarif integrasi antara mrt dan krl", "intent": "fare_query"}
+{"q": "tarif transjakarta berapa", "intent": "fare_query"}
+{"q": "tarif maksimal mrt berapa", "intent": "fare_query"}
+{"q": "apakah kartu jaklingko bisa dipakai di mrt dan krl", "intent": "fare_query"}
+{"q": "berapa tarif mrt 2026", "intent": "fare_query"}
+{"q": "harga tiket lrt jabodebek", "intent": "fare_query"}
+{"q": "tarif krl commuter line ke cikarang", "intent": "fare_query"}
+{"q": "apakah tarif mrt sama untuk semua stasiun", "intent": "fare_query"}
+{"q": "berapa biaya naik mrt sekali jalan", "intent": "fare_query"}
+{"q": "tarif integrasi jaklingko antar moda", "intent": "fare_query"}
+{"q": "apakah ada tarif khusus untuk pelajar di krl", "intent": "fare_query"}
+{"q": "harga tiket transjakarta sekali naik", "intent": "fare_query"}
+{"q": "tarif minimum naik mrt berapa", "intent": "fare_query"}
+{"q": "apakah tarif lrt jakarta per kilometer", "intent": "fare_query"}
+{"q": "berapa biaya tiket krl lokal", "intent": "fare_query"}
+{"q": "tarif mrt untuk anak anak berapa", "intent": "fare_query"}
+{"q": "apakah kartu uang elektronik bisa dipakai di semua moda", "intent": "fare_query"}
+{"q": "harga tiket lrt untuk perjalanan sekali", "intent": "fare_query"}
+{"q": "tarif krl ke bogor berapa 2025", "intent": "fare_query"}
+{"q": "bagaimana cara pembayaran tiket mrt", "intent": "fare_query"}
+{"q": "apakah tarif transjakarta flat", "intent": "fare_query"}
+{"q": "berapa tarif mrt di jam sibuk", "intent": "fare_query"}
+{"q": "tarif lrt jabodebek per stasiun", "intent": "fare_query"}
+{"q": "apakah ada diskon tarif saat tertentu", "intent": "fare_query"}
+{"q": "tarif krl lintas jakarta kota bogor", "intent": "fare_query"}
+{"q": "harga tiket mrt 2025", "intent": "fare_query"}
+{"q": "apakah bisa bayar tarif dengan qris", "intent": "fare_query"}
+{"q": "tarif mrt per zona berapa", "intent": "fare_query"}
+{"q": "berapa biaya minimal naik krl", "intent": "fare_query"}
+{"q": "tarif transjakarta di hari libur", "intent": "fare_query"}
+{"q": "apakah tarif mrt berubah per tahun", "intent": "fare_query"}
+{"q": "tarif integrasi mrt dan brt", "intent": "fare_query"}
+{"q": "jam operasional mrt jakarta", "intent": "schedule_query"}
+{"q": "jam berapa lrt jakarta mulai beroperasi", "intent": "schedule_query"}
+{"q": "jadwal krl bogor pagi hari", "intent": "schedule_query"}
+{"q": "berapa menit sekali kereta krl", "intent": "schedule_query"}
+{"q": "jam berapa kereta mrt terakhir dari lebak bulus", "intent": "schedule_query"}
+{"q": "frekuensi perjalanan mrt di jam sibuk", "intent": "schedule_query"}
+{"q": "mrt beroperasi sampai jam berapa", "intent": "schedule_query"}
+{"q": "jadwal keberangkatan mrt", "intent": "schedule_query"}
+{"q": "jam berapa lrt jakarta berhenti beroperasi", "intent": "schedule_query"}
+{"q": "headway krl di jam sibuk", "intent": "schedule_query"}
+{"q": "jadwal kereta commuter line depok", "intent": "schedule_query"}
+{"q": "berapa menit sekali lrt jakarta", "intent": "schedule_query"}
+{"q": "jam operasional transjakarta", "intent": "schedule_query"}
+{"q": "jam berapa busway terakhir", "intent": "schedule_query"}
+{"q": "jadwal mrt hari minggu", "intent": "schedule_query"}
+{"q": "berapa lama interval mrt", "intent": "schedule_query"}
+{"q": "jam operasional lrt jabodebek", "intent": "schedule_query"}
+{"q": "jadwal krl terakhir ke bogor", "intent": "schedule_query"}
+{"q": "berapa menit sekali bus transjakarta", "intent": "schedule_query"}
+{"q": "jam berapa mrt pertama berangkat", "intent": "schedule_query"}
+{"q": "frekuensi lrt jakarta di akhir pekan", "intent": "schedule_query"}
+{"q": "jadwal keberangkatan krl dari jakarta kota", "intent": "schedule_query"}
+{"q": "berapa lama waktu tunggu mrt", "intent": "schedule_query"}
+{"q": "jam operasional mrt di hari libur", "intent": "schedule_query"}
+{"q": "jadwal lrt dari kelapa gading ke manggarai", "intent": "schedule_query"}
+{"q": "jam berapa terakhir naik krl ke bekasi", "intent": "schedule_query"}
+{"q": "headway mrt saat rush hour", "intent": "schedule_query"}
+{"q": "berapa menit sekali krl di luar jam sibuk", "intent": "schedule_query"}
+{"q": "jam operasional koridor transjakarta", "intent": "schedule_query"}
+{"q": "jadwal kereta terakhir dari depok", "intent": "schedule_query"}
+{"q": "apakah ada jadwal khusus mrt saat mudik", "intent": "schedule_query"}
+{"q": "jam berapa mrt mulai beroperasi", "intent": "schedule_query"}
+{"q": "jam berapa stasiun dukuh atas paling padat", "intent": "crowding"}
+{"q": "kapan perjalanan mrt paling longgar", "intent": "crowding"}
+{"q": "apakah mrt biasanya ramai di pagi hari", "intent": "crowding"}
+{"q": "segmen mrt mana yang paling ramai", "intent": "crowding"}
+{"q": "jam berapa dari lebak bulus ke dukuh atas tidak terlalu ramai", "intent": "crowding"}
+{"q": "apakah akhir pekan stasiun blok m ramai", "intent": "crowding"}
+{"q": "padatkah krl di jam berangkat kerja", "intent": "crowding"}
+{"q": "waktu longgar ke bogor pakai krl", "intent": "crowding"}
+{"q": "jam sibuk mrt kapan", "intent": "crowding"}
+{"q": "apakah mrt siang hari sepi", "intent": "crowding"}
+{"q": "kapan stasiun fatmawati paling ramai", "intent": "crowding"}
+{"q": "arah mana yang lebih ramai, ke pusat kota atau sebaliknya", "intent": "crowding"}
+{"q": "apakah lrt jakarta padat di jam sekolah", "intent": "crowding"}
+{"q": "jam berapa transjakarta paling penuh", "intent": "crowding"}
+{"q": "apakah krl ke bogor rame pagi hari", "intent": "crowding"}
+{"q": "kapan waktu terbaik agar tidak padat di mrt", "intent": "crowding"}
+{"q": "tingkat kepadatan mrt di jam sibuk", "intent": "crowding"}
+{"q": "apakah stasiun bundaran hi selalu ramai", "intent": "crowding"}
+{"q": "jam berapa penumpang mrt paling banyak", "intent": "crowding"}
+{"q": "padat tidak krl di hari kerja", "intent": "crowding"}
+{"q": "kapan lrt jabodebek sepi", "intent": "crowding"}
+{"q": "apakah busway siang hari penuh", "intent": "crowding"}
+{"q": "jam berapa halte cawang paling ramai", "intent": "crowding"}
+{"q": "berapa lama mrt paling padat dalam sehari", "intent": "crowding"}
+{"q": "apakah pagi hari selalu paling ramai di semua moda", "intent": "crowding"}
+{"q": "kapan waktu sepi di transjakarta", "intent": "crowding"}
+{"q": "segmen krl mana yang paling padat", "intent": "crowding"}
+{"q": "apakah mrt weekend ramai", "intent": "crowding"}
+{"q": "jam berapa dari blok m ke bogor paling longgar", "intent": "crowding"}
+{"q": "kepadatan krl di jam pulang kerja", "intent": "crowding"}
+{"q": "apakah stasiun cawang ramai di siang hari", "intent": "crowding"}
+{"q": "kapan mrt paling sesak", "intent": "crowding"}
+{"q": "waktu paling ramai di stasiun dukuh atas", "intent": "crowding"}
+{"q": "apakah mrt lebih ramai pagi atau malam", "intent": "crowding"}
+{"q": "jam berapa lrt paling sepi", "intent": "crowding"}
+{"q": "kenapa angka penumpang bps dan operator berbeda", "intent": "policy_document"}
+{"q": "apa itu jaklingko", "intent": "policy_document"}
+{"q": "laporan tahunan mrt jakarta", "intent": "policy_document"}
+{"q": "fasilitas apa yang ada di stasiun dukuh atas", "intent": "policy_document"}
+{"q": "mengapa nama stasiun sisingamangaraja berubah", "intent": "policy_document"}
+{"q": "bagaimana cara membeli tiket mrt", "intent": "fare_query"}
+{"q": "ada tidak stasiun baru di lrt jakarta", "intent": "policy_document"}
+{"q": "metodologi hitung penumpang bps", "intent": "policy_document"}
+{"q": "siapa operator mrt jakarta", "intent": "policy_document"}
+{"q": "apa itu lrt jabodebek", "intent": "policy_document"}
+{"q": "apa perbedaan lrt jakarta dan lrt jabodebek", "intent": "policy_document"}
+{"q": "stasiun apa saja yang ada di jalur mrt", "intent": "policy_document"}
+{"q": "apa itu koridor transjakarta", "intent": "policy_document"}
+{"q": "bagaimana integrasi antar moda di dukuh atas", "intent": "policy_document"}
+{"q": "apa itu krl commuter line", "intent": "policy_document"}
+{"q": "sejarah mrt jakarta", "intent": "policy_document"}
+{"q": "kenapa ada dua lrt di jakarta", "intent": "policy_document"}
+{"q": "apa itu satu data indonesia", "intent": "policy_document"}
+{"q": "bagaimana cara membaca jadwal krl", "intent": "policy_document"}
+{"q": "apa saja fasilitas di stasiun lebak bulus", "intent": "policy_document"}
+{"q": "perubahan nama stasiun mrt 2024", "intent": "policy_document"}
+{"q": "apa itu gtfs", "intent": "policy_document"}
+{"q": "bagaimana definisi penumpang menurut bps", "intent": "policy_document"}
+{"q": "apa itu tap in dan tap out", "intent": "policy_document"}
+{"q": "kenapa data penumpang bisa berbeda antar sumber", "intent": "policy_document"}
+{"q": "apa yang dimaksud data label historis", "intent": "policy_document"}
+{"q": "bagaimana cara integrasi pembayaran jaklingko", "intent": "policy_document"}
+{"q": "apa itu laporan tahunan", "intent": "policy_document"}
+{"q": "berapa stasiun di jalur mrt", "intent": "policy_document"}
+{"q": "bagaimana kebijakan tarif integrasi", "intent": "policy_document"}
+{"q": "apa itu berita resmi statistik", "intent": "policy_document"}
+{"q": "kenapa bps memakai tap in sebagai definisi", "intent": "policy_document"}
+{"q": "apa yang diliput laporan keberlanjutan mrt", "intent": "policy_document"}
+{"q": "bagaimana status pengoperasian lrt jabodebek", "intent": "policy_document"}
+{"q": "apa itu hari kerja dan hari libur dalam data", "intent": "policy_document"}
+{"q": "bagaimana cara cek jadwal mrt", "intent": "policy_document"}
+{"q": "apa itu simpul transfer", "intent": "policy_document"}
+{"q": "kenapa nama stasiun bundaran hi berubah", "intent": "policy_document"}
+{"q": "siapa yang mengelola transjakarta", "intent": "policy_document"}
+{"q": "bagaimana ketentuan tarif anak di krl", "intent": "fare_query"}
+{"q": "apa itu data kualitas", "intent": "policy_document"}
+{"q": "bagaimana aturan perjalanan dengan jaklingko", "intent": "policy_document"}
+{"q": "apa yang dimaksud masa berlaku dokumen", "intent": "policy_document"}
+{"q": "kenapa mrt punya nama stasiun dengan sponsor", "intent": "policy_document"}
+{"q": "apa itu proksi dalam konteks data transportasi", "intent": "policy_document"}
+{"q": "apa saja koridor utama transjakarta", "intent": "policy_document"}
+{"q": "apa artinya kata mrt", "intent": "policy_document"}
+{"q": "halo", "intent": "other"}
+{"q": "hai, apa kabar", "intent": "other"}
+{"q": "terima kasih", "intent": "other"}
+{"q": "siapa kamu", "intent": "other"}
+{"q": "kamu asisten apa", "intent": "other"}
+{"q": "aku suka kucing", "intent": "other"}
+{"q": "ceritakan lelucon", "intent": "other"}
+{"q": "berapa 2 tambah 2", "intent": "other"}
+{"q": "cuaca hari ini di jakarta", "intent": "other"}
+{"q": "resep nasi goreng", "intent": "other"}
+{"q": "boleh tidak kita ngobrol", "intent": "other"}
+{"q": "makasih sudah membantu", "intent": "other"}
+{"q": "tutup chat ini", "intent": "other"}
+{"q": "tolong reset percakapan", "intent": "other"}
+{"q": "siapa presiden indonesia", "intent": "other"}
+{"q": "liga 1 musim ini bagaimana", "intent": "other"}
+{"q": "kapan kamu dibuat", "intent": "other"}
+{"q": "terima kasih banyak, sampai jumpa", "intent": "other"}
+{"q": "apa hobimu", "intent": "other"}
+{"q": "tolong terjemahkan kata hello", "intent": "other"}
+{"q": "aku lapar", "intent": "other"}
+{"q": "siapa pembuat aplikasi ini", "intent": "other"}
+{"q": "apakah kamu bisa menggambar", "intent": "other"}
+{"q": "hai lagi", "intent": "other"}
+{"q": "kapan mrt paling sepi", "intent": "crowding"}
+{"q": "kapan stasiun cawang sepi", "intent": "crowding"}
+{"q": "kapan waktu ramai di lrt", "intent": "crowding"}
+{"q": "apakah transjakarta padat di jam 7 pagi", "intent": "crowding"}
+{"q": "apakah mrt sesak di hari kerja", "intent": "crowding"}
+{"q": "apakah lrt rame di jam pulang", "intent": "crowding"}
+{"q": "apakah busway penuh di akhir pekan", "intent": "crowding"}
+{"q": "kapan perjalanan dari dukuh atas ke bogor paling ramai", "intent": "crowding"}
+{"q": "kapan perjalanan dari lebak bulus ke fatmawati sepi", "intent": "crowding"}
+{"q": "jam berapa lrt paling ramai di pagi hari", "intent": "crowding"}
+{"q": "jam berapa krl paling sepi di siang hari", "intent": "crowding"}
+{"q": "waktu longgar dari blok m ke cawang", "intent": "crowding"}
+{"q": "waktu padat di stasiun lebak bulus", "intent": "crowding"}
+{"q": "apakah stasiun harjamukti padat di pagi hari", "intent": "crowding"}
+{"q": "segmen mrt yang paling sesak", "intent": "crowding"}
+{"q": "apakah mrt penuh di jam 17.00", "intent": "crowding"}
+{"q": "kapan longgar dari cikarang ke cawang", "intent": "crowding"}
+{"q": "apakah transjakarta rame saat mudik", "intent": "crowding"}
+{"q": "padat nggk mrt pagi2", "intent": "crowding"}
+{"q": "kapan mrt sepi ya", "intent": "crowding"}
+{"q": "rame ga lrt di jam 5 sore", "intent": "crowding"}
+{"q": "perbandingan penumpang krl dan mrt", "intent": "mode_comparison"}
+{"q": "lrt atau transjakarta mana yang lebih banyak penumpangnya", "intent": "mode_comparison"}
+{"q": "mrt vs lrt jumlah penumpang", "intent": "mode_comparison"}
+{"q": "bandingkan mrt dan krl", "intent": "mode_comparison"}
+{"q": "lebih besar penumpangnya krl atau mrt", "intent": "mode_comparison"}
+{"q": "perbandingan lrt jakarta dan lrt jabodebek", "intent": "mode_comparison"}
+{"q": "mana yang penumpangnya lebih tinggi, transjakarta atau krl", "intent": "mode_comparison"}
+{"q": "bandingkan jumlah penumpang mrt krl 2024", "intent": "mode_comparison"}
+{"q": "perbandingan moda 2024", "intent": "mode_comparison"}
+{"q": "moda apa nomor satu penumpangnya", "intent": "mode_comparison"}
+{"q": "stasiun favorit penumpang krl", "intent": "station_ranking"}
+{"q": "stasiun favorit penumpang transjakarta", "intent": "station_ranking"}
+{"q": "halte favorit penumpang", "intent": "station_ranking"}
+{"q": "stasiun mana yang jadi favorit", "intent": "station_ranking"}
+{"q": "stasiun mana yang paling diminati", "intent": "station_ranking"}
+{"q": "stasiun utama paling ramai", "intent": "station_ranking"}
+{"q": "stasiun mrt yg paling ramai", "intent": "station_ranking"}
+{"q": "jadwal mrt dari lebak bulus ke bundaran hi", "intent": "schedule_query"}
+{"q": "jadwal krl dari depok ke bogor", "intent": "schedule_query"}
+{"q": "jam berapa kereta terakhir dari cawang", "intent": "schedule_query"}
+{"q": "jadwal lrt dari manggarai ke pulomas", "intent": "schedule_query"}
+{"q": "jam berapa bus terakhir dari kalideres", "intent": "schedule_query"}
+{"q": "jadwal mrt dari fatmawati ke dukuh atas", "intent": "schedule_query"}
+{"q": "jam opersional mrt", "intent": "schedule_query"}
+{"q": "brp menit sekali mrt", "intent": "schedule_query"}
+{"q": "kapan mrt mulai op", "intent": "schedule_query"}
+{"q": "apa saja koridor transjakarta", "intent": "policy_document"}
+{"q": "koridor utama transjakarta apa saja", "intent": "policy_document"}
+{"q": "bagaimana integrasi antar moda", "intent": "policy_document"}
+{"q": "integrasi moda di dukuh atas bagaimana", "intent": "policy_document"}
+{"q": "apa itu hub transportasi", "intent": "policy_document"}
+{"q": "bagaimana sistem tiket jaklingko bekerja", "intent": "policy_document"}
+{"q": "gimana dari lebak bulus ke cawang", "intent": "route_planning"}
+{"q": "brp lama dari blok m ke bogor", "intent": "route_planning"}
+{"q": "cara ke bekasi dari manggarai", "intent": "route_planning"}
+{"q": "gw mau dari fatmawati ke bundaran hi", "intent": "route_planning"}
+{"q": "brp penumpang mrt 2025", "intent": "ridership_statistics"}
+{"q": "gimana tren penumpang krl", "intent": "ridership_statistics"}
+{"q": "penumpang lrt tahun 2025 brp", "intent": "ridership_statistics"}
+{"q": "berapa jumlah penumpang mrt 2025", "intent": "ridership_statistics"}
+{"q": "apakah penumpang lrt naik 2025", "intent": "ridership_statistics"}
+{"q": "tarif mrt brp", "intent": "fare_query"}
+{"q": "brp harga tiket krl", "intent": "fare_query"}
+{"q": "gimana tarifnya mrt", "intent": "fare_query"}
+{"q": "hlo", "intent": "other"}
+{"q": "hei kamu", "intent": "other"}
+{"q": "salam", "intent": "other"}
+{"q": "terima kasih banyak", "intent": "other"}
+{"q": "apakah kartu tap bisa dipakai di mrt dan krl", "intent": "fare_query"}
+{"q": "apakah jaklingko berlaku di lrt dan brt", "intent": "fare_query"}
+{"q": "gimana cara isi ulang jaklingko", "intent": "fare_query"}
+{"q": "headway mrt", "intent": "schedule_query"}
+{"q": "interval krl berapa menit", "intent": "schedule_query"}
+{"q": "berapa lama sekali busway", "intent": "schedule_query"}
+{"q": "headway lrt saat jam sibuk", "intent": "schedule_query"}
+{"q": "interval mrt di akhir pekan", "intent": "schedule_query"}
+{"q": "saya mau dari blok m ke bogor bagaimana", "intent": "route_planning"}
+{"q": "dari cawang mau ke cikarang gimana", "intent": "route_planning"}
+{"q": "perjalanan dari lebak bulus ke cawang bagaimana", "intent": "route_planning"}
+{"q": "penumpang mrt 2025 dibanding 2024", "intent": "ridership_statistics"}
+{"q": "apakah penumpang mrt naik dibanding tahun lalu", "intent": "ridership_statistics"}
+{"q": "tren krl dibanding tahun sebelumnya", "intent": "ridership_statistics"}
+{"q": "apakah penumpang brt naik 2025", "intent": "ridership_statistics"}
+{"q": "ranking moda berdasarkan jumlah penumpang", "intent": "mode_comparison"}
+{"q": "urutan moda berdasarkan penumpang", "intent": "mode_comparison"}
+{"q": "mana yang tumbuh lebih cepat, mrt atau lrt", "intent": "mode_comparison"}
+{"q": "moda dengan pertumbuhan tertinggi", "intent": "mode_comparison"}
+{"q": "pertumbuhan moda mana yang terbaik", "intent": "mode_comparison"}
+{"q": "halte favorit", "intent": "station_ranking"}
+{"q": "stasiun yang paling sering jadi favorit", "intent": "station_ranking"}
+{"q": "halte mana yang paling diminati", "intent": "station_ranking"}
+{"q": "ada tidak koridor baru transjakarta", "intent": "policy_document"}
+{"q": "rencana stasiun baru lrt jakarta", "intent": "policy_document"}
+{"q": "ada tidak jalur baru mrt", "intent": "policy_document"}
+{"q": "perluasan lrt jakarta 2026", "intent": "policy_document"}
+{"q": "kapan stasiun fatmawati sepi", "intent": "crowding"}
+{"q": "waktu padat perjalanan lrt", "intent": "crowding"}
+{"q": "apakah perjalanan mrt ke bogor selalu padat", "intent": "crowding"}
+{"q": "apakah perjalanan lrt ke cikarang sering penuh", "intent": "crowding"}
+{"q": "jam berapa penumpang krl paling banyak", "intent": "crowding"}
+{"q": "apakah ada jadwal khusus mrt saat lebaran", "intent": "schedule_query"}
+{"q": "jadwal khusus krl hari raya", "intent": "schedule_query"}
+{"q": "apakah ada perubahan jadwal mrt saat libur", "intent": "schedule_query"}
+{"q": "apakah kamu bisa menulis", "intent": "other"}
+{"q": "apakah kamu bisa melukis", "intent": "other"}
+{"q": "krl vs mrt mana yang lebih ramai penumpangnya", "intent": "mode_comparison"}
+{"q": "transjakarta vs lrt jumlah penumpang", "intent": "mode_comparison"}
+{"q": "bandingkan tren penumpang krl dan brt 2025", "intent": "mode_comparison"}
+{"q": "berapa banyak orang yang naik krl per bulan", "intent": "ridership_statistics"}
+{"q": "berapa banyak orang yang naik mrt dalam sebulan", "intent": "ridership_statistics"}
+{"q": "halte favorit transjakarta 2025", "intent": "station_ranking"}
+{"q": "stasiun dengan tap out terbanyak", "intent": "station_ranking"}
+{"q": "apa itu sistem tiket nasional", "intent": "policy_document"}

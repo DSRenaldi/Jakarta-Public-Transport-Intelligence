@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import Planner from './pages/Planner.jsx'
-import RagPage from './pages/RagPage.jsx'
+import ChatPage from './pages/ChatPage.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import MapsPage from './pages/MapsPage.jsx'
 import { getHealth } from './api.js'
 
 const TABS = [
   { id: 'rute', label: 'Penencana Rute', el: <Planner /> },
-  { id: 'rag', label: 'Tanya Dokumen', el: <RagPage /> },
+  { id: 'chat', label: 'Chat', el: <ChatPage /> },
   { id: 'dashboard', label: 'Dashboard', el: <Dashboard /> },
   { id: 'peta', label: 'Peta Resmi', el: <MapsPage /> },
 ]

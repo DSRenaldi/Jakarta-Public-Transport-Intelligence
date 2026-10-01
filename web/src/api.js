@@ -40,6 +40,14 @@ export const ragQuery = ({ query, top_k, operator, mode, doc_type, label }) =>
     body: JSON.stringify({ query, top_k, operator: operator || null, mode: mode || null, doc_type: doc_type || null, label: label || null }),
   })
 
+export const askChat = (message, sessionId) =>
+  api('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({ message, session_id: sessionId }),
+  })
+
+export const getChatStatus = () => api('/api/chat/status')
+
 export const getRidership = (mode, periodType) => {
   const p = new URLSearchParams()
   if (mode) p.set('mode', mode)
