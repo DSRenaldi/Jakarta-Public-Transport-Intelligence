@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import { getRidership } from '../api.js'
+import { getRidership, getLines } from '../api.js'
 import { MODE_COLORS } from '../lib.js'
 
 const MODES = ['MRT', 'KRL', 'LRT', 'BRT']
+const FILTER_ORDER = ['MRT', 'LRT', 'KRL', 'BRT']
 const MODE_LABEL = { MRT: 'MRT Jakarta', KRL: 'KRL Commuter Line', LRT: 'LRT Jakarta & Jabodebek', BRT: 'TransJakarta' }
 
 function monthLabel(ys) {
@@ -38,12 +39,35 @@ function StatCard({ mode, latest }) {
 }
 
 export default function Dashboard() {
+  // Satu-satunya sumber kebenaran filter moda di halaman ini ('all' = Semua).
+  const [mode, setMode] = useState('all')
   const [rows, setRows] = useState(null)
+  const [lines, setLines] = useState(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const seq = useRef(0)
 
+  // Fetch ulang hanya saat filter moda berubah (deps [mode]) — tanpa mode
+  // yang sama tidak ada fetch duplikat. Guard `seq` membuang respons usang
+  // jika pengguna ganti filter cepat (respons lama tak boleh menimpa data baru).
   useEffect(() => {
-    getRidership().then((r) => setRows(r.rows)).catch((e) => setError(e.message))
-  }, [])
+    const id = ++seq.current
+    const m = mode === 'all' ? null : mode
+    setBusy(true)
+    setError(null)
+    Promise.all([getRidership(m, 'month'), getLines(m)])
+      .then(([riders, net]) => {
+        if (id !== seq.current) return
+        setRows(riders.rows)
+        setLines(net.lines)
+        setBusy(false)
+      })
+      .catch((e) => {
+        if (id !== seq.current) return
+        setError(e.message)
+        setBusy(false)
+      })
+  }, [mode])
 
   const perMode = useMemo(() => {
     if (!rows) return {}
@@ -62,6 +86,15 @@ export default function Dashboard() {
     }
     return out
   }, [perMode])
+
+  const lineCountByMode = useMemo(() => {
+    const out = {}
+    for (const l of lines || []) out[l.mode_id] = (out[l.mode_id] || 0) + 1
+    return out
+  }, [lines])
+
+  const shownModes = mode === 'all' ? MODES : [mode]
+  const shownLines = mode === 'all' ? [] : (lines || []).filter((l) => l.mode_id === mode)
 
   if (error) return <div className="page"><p className="error">Gagal memuat data: {error}</p></div>
   if (!rows) return <div className="page"><p className="note">Memuat data ridership…</p></div>
@@ -97,21 +130,67 @@ export default function Dashboard() {
 
   return (
     <div className="page">
+      <div className="mode-filter">
+        <span className="mode-filter-label">Moda:</span>
+        <div className="chips">
+          <button className={`chip${mode === 'all' ? ' on' : ''}`} onClick={() => setMode('all')}>Semua</button>
+          {FILTER_ORDER.map((m) => (
+            <button key={m} className={`chip${mode === m ? ' on' : ''}`} onClick={() => setMode(m)}>
+              <i style={{ background: MODE_COLORS[m] }} />{m}
+            </button>
+          ))}
+        </div>
+        {busy && <span className="note">Memuat…</span>}
+      </div>
+
       <section className="card">
-        <h2>Penumpang per moda — data historis</h2>
+        <h2>
+          {mode === 'all'
+            ? 'Penumpang per moda — data historis'
+            : `Penumpang ${MODE_LABEL[mode]} — data historis`}
+        </h2>
         <p className="note">
           Sumber: BPS DKI Jakarta (tabel transportasi), KCI, KAI, operator TransJakarta, SDI
           Dishub — label <b>historis</b>, tiap baris punya <code>source_id</code> + definisi
           (hover titik untuk detail). Definisi antar-sumber bisa berbeda (mis. tap-in BPS vs
           perhitungan operator).
         </p>
-        <div className="stats">
-          {MODES.map((m) => <StatCard key={m} mode={m} latest={latestPerMode[m]} />)}
+        <div className="stats" style={shownModes.length === 1 ? { gridTemplateColumns: '1fr' } : undefined}>
+          {shownModes.map((m) => <StatCard key={m} mode={m} latest={latestPerMode[m]} />)}
         </div>
       </section>
 
-      <div className="dash-grid">
-        {MODES.map((m) => (
+      <section className="card">
+        <h2>Jaringan moda</h2>
+        <p className="note">
+          Jalur dari database jaringan (GTFS TransJakarta + rel OSM) — data jaringan,
+          bukan angka penumpang. Daftar ikut filter moda di atas.
+        </p>
+        {mode === 'all' ? (
+          <div className="mode-legend">
+            {MODES.map((m) => (
+              <span key={m} className="legend-item">
+                <i style={{ background: MODE_COLORS[m] }} />
+                {MODE_LABEL[m]} · {lineCountByMode[m] ?? 0} jalur
+              </span>
+            ))}
+          </div>
+        ) : shownLines.length === 0 ? (
+          <p className="note">Tidak ada jalur untuk moda ini.</p>
+        ) : (
+          <div className="line-list">
+            {shownLines.map((l) => (
+              <span key={l.line_id} className="chip" title={l.canonical_name}>
+                {l.display_name || l.canonical_name}
+                {l.stop_count ? ` · ${l.stop_count} stasiun` : ''}
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <div className="dash-grid" style={shownModes.length === 1 ? { gridTemplateColumns: '1fr' } : undefined}>
+        {shownModes.map((m) => (
           <section key={m} className="card chart-card">
             <h3 style={{ color: MODE_COLORS[m] }}>{MODE_LABEL[m]}</h3>
             {(perMode[m] || []).length === 0

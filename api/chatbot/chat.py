@@ -21,13 +21,15 @@ import time
 from datetime import datetime
 
 from . import intents, llm, tools
+from . import memory as user_memory
+from . import semantic_cache
 from .cache_store import (NS_EXACT, NS_LOCK, NS_PREDICTION, NS_ROUTE,
                           NS_TOOL, TTL_EXACT_SEC, TTL_FARE_SCHEDULE_SEC,
                           TTL_PREDICTION_SEC, TTL_RAG_SEC, TTL_ROUTE_SEC,
                           TTL_RIDERSHIP_SEC, get_store)
 from .session import STORE
 
-PROMPT_VERSION = "chat-v2"
+PROMPT_VERSION = "chat-v3"
 
 SYSTEM_PROMPT = """Kamu adalah asisten percakapan JPTI untuk transportasi umum Jabodetabek (MRT Jakarta, KRL Commuter Line, LRT Jakarta, LRT Jabodebek, TransJakarta).
 
@@ -37,7 +39,7 @@ Aturan wajib:
 1. Gunakan HANYA informasi di <Konteks>. Jangan mengarang angka, jadwal, tarif, atau status layanan.
 2. Jika konteks kosong atau data tidak mendukung, akui keterbatasannya dan tawarkan analisis terdekat. Jangan menebak.
 3. Setiap angka dicantumkan label datanya (historis/proksi/prediksi/aktual) beserta periode dan sumbernya.
-4. Rujuk sumber dengan nomor [n] sesuai daftar sumber di <Konteks>.
+4. Bila <Konteks> memuat daftar sumber, SETIAP pernyataan faktual (angka, jadwal, tarif, isi dokumen) WAJIB diberi rujukan [n] yang sesuai. Bila tidak ada sumber, jangan menuliskan [n] dan akui ketiadaan datanya.
 5. Perjalanan A→B berbeda dari B→A; sebutkan asal dan tujuan secara eksplisit.
 6. Jangan mencampur LRT Jakarta dengan LRT Jabodebek.
 7. Jika data merujuk beberapa titik yang mirip (kandidat ambigu), ajukan klarifikasi beserta opsinya.
@@ -61,8 +63,12 @@ def _extract_user_spec(intent: str) -> str:
                 '"period": string|null}')
     if intent == "mode_comparison":
         return 'mode_comparison: {"period": string|null}'
-    if intent in ("fare_query", "schedule_query"):
-        return 'lainnya: {"mode": "MRT"|"KRL"|"LRT"|"BRT"|null}'
+    if intent == "fare_query":
+        return ('fare_query: {"mode": "MRT"|"KRL"|"LRT"|"BRT"|null, '
+                '"origin": string|null, "dest": string|null} '
+                '(isi origin/dest bila pertanyaan menyebut dua stasiun)')
+    if intent == "schedule_query":
+        return 'schedule_query: {"mode": "MRT"|"KRL"|"LRT"|"BRT"|null}'
     if intent == "crowding":
         return ('crowding: {"mode": "MRT"|"KRL"|"LRT"|"BRT"|null, '
                 '"time": "HH:MM"|null, '
@@ -76,13 +82,15 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
-def _exact_key(question: str, data_version: str) -> str:
-    """Key exact cache: versi prompt + versi data + pertanyaan dinormalisasi.
+def _exact_key(question: str, data_version: str, mem_version: int = 0) -> str:
+    """Key exact cache: versi prompt + versi data + VERSI MEMORI
+    pengguna (§35.9) + pertanyaan dinormalisasi.
 
     Ingest baru → data_version baru → key baru (invalidasi alami §11.6).
+    Memori berubah → mem_version baru → jawaban personal dihitung ulang.
     """
     h = hashlib.sha1(question.lower().encode("utf-8")).hexdigest()
-    return f"{NS_EXACT}:{PROMPT_VERSION}|{data_version}|{h}"
+    return f"{NS_EXACT}:{PROMPT_VERSION}|{data_version}|{mem_version}|{h}"
 
 
 def cache_info() -> dict:
@@ -157,7 +165,8 @@ def _regex_slots(intent: str, text: str) -> dict:
                 slots["origin"] = o
             if d:
                 slots["dest"] = d
-        tm = re.search(r"\bpukul\s+(\d{1,2})\s*[.:h]?\s*(\d{2})?", text, re.I)
+        tm = re.search(r"\b(?:pukul|jam)\s+(\d{1,2})\s*[.:h]?\s*(\d{2})?",
+                       text, re.I)
         if tm:
             slots["time"] = f"{int(tm.group(1)):02d}:{tm.group(2) or '00'}"
         tl = text.lower()
@@ -178,8 +187,19 @@ def _regex_slots(intent: str, text: str) -> dict:
         if years and intent in ("ridership_statistics", "mode_comparison"):
             slots["period"] = sorted(set(years))[0] if len(set(years)) == 1 \
                 else f"{min(years)} s.d. {max(years)}"
+        if intent == "fare_query":
+            fm = (re.search(r"dari\s+(?P<o>.+?)\s+ke\s+(?P<d>.+)", text, re.I)
+                  or re.search(r"ke\s+(?P<d>.+?)\s+dari\s+(?P<o>.+)", text,
+                               re.I))
+            if fm:
+                fo, fd = _clean_od(fm["o"]), _clean_od(fm["d"])
+                if fo:
+                    slots["origin"] = fo
+                if fd:
+                    slots["dest"] = fd
     if intent == "crowding":
-        tm = re.search(r"\bpukul\s+(\d{1,2})\s*[.:h]?\s*(\d{2})?", text, re.I)
+        tm = re.search(r"\b(?:pukul|jam)\s+(\d{1,2})\s*[.:h]?\s*(\d{2})?",
+                       text, re.I)
         if tm:
             slots["time"] = f"{int(tm.group(1)):02d}:{tm.group(2) or '00'}"
         tl = text.lower()
@@ -274,11 +294,13 @@ def run_tool(intent: str, slots: dict, question: str, net,
                         "resmi yang ditemukan RAG."}
     if intent == "fare_query":
         mode = slots.get("mode") or _mode_from_text(question)
+        origin = (slots.get("origin") or "").strip() or None
+        dest = (slots.get("dest") or "").strip() or None
         subkey = (data_version + "|" + hashlib.sha1(
-            f"fare|{mode}".encode("utf-8")).hexdigest())
+            f"fare|{mode}|{origin}|{dest}".encode("utf-8")).hexdigest())
         result = _tool_cached(
             NS_TOOL, subkey, TTL_FARE_SCHEDULE_SEC,
-            lambda: tools.tool_fare(mode),
+            lambda: tools.tool_fare(mode, origin, dest),
             lambda r: bool(r.get("available")))
         return {"tool": "fare", "result": result}
     if intent == "schedule_query":
@@ -658,13 +680,41 @@ def fallback_reply(intent: str, slots: dict, tool_out: dict) -> str:
 
 def handle_chat(message: str, session_id: str | None, net,
                 ridership_rows: list[dict],
-                data_version: str = "") -> dict:
+                data_version: str = "",
+                personal: bool = False,
+                user_id: str | None = None) -> dict:
     t0 = time.time()
     question = _normalize(message)
     sid = STORE.get_id(session_id)
     history = STORE.history(sid)
 
-    key = _exact_key(question, data_version)
+    # Perintah memori pengguna (§35.8): "ingat ...", "apa yang kamu
+    # ingat", "lupakan ...", "hapus semua memori" — deterministik,
+    # PERSONAL, dan TIDAK PERNAH di-cache.
+    if user_id:
+        cmd = user_memory.parse_command(question)
+        if cmd:
+            out = user_memory.handle_command(cmd, user_id)
+            out["session_id"] = sid
+            out["cache_status"] = "memory_command"
+            out["llm"] = False
+            out["intent_confidence"] = 1.0
+            out["latency_ms"] = int((time.time() - t0) * 1000)
+            STORE.append(sid, "user", question)
+            STORE.append(sid, "assistant", out["reply"])
+            print(f"[chat] {question[:60]!r} → memory:{cmd['kind']} "
+                  f"{out['latency_ms']} ms", flush=True)
+            return out
+
+    # Memori persistent (§35.7): muat preferensi aktif. Versi memori
+    # masuk key cache (§35.9); bila ada memori aktif, jawaban bersifat
+    # personal → tidak melewati semantic cache global.
+    mem = (user_memory.load(user_id) if user_id
+           else {"active": False, "version": 0, "prefs": {},
+                 "journeys": []})
+    personal = personal or mem["active"]
+
+    key = _exact_key(question, data_version, mem["version"])
     store = get_store()
 
     def _hit(out: dict) -> dict:
@@ -696,7 +746,37 @@ def handle_chat(message: str, session_id: str | None, net,
 
     try:
         intent, conf = intents.classify(question)
-        slots = extract_slots(intent, question, history)
+        # Semantic cache (§11.2-B, §29): dicek SETELAH classifier (murah,
+        # tanpa LLM) dan SEBELUM ekstraksi slot (LLM) — bila hit, kita
+        # hemat slot+tool+komposisi LLM. Hard filter memakai slot
+        # deterministik (regex) sebagai hint; aman karena salah ketik
+        # hanya menghasilkan miss (hitung ulang), bukan salah hit.
+        # Jawaban personal (memori pengguna §35.9) TIDAK melewati cache.
+        if intent != "other" and not personal:
+            hint = _regex_slots(intent, question)
+            sem = semantic_cache.lookup(
+                intent, question, hint, data_version, PROMPT_VERSION)
+            if sem is not None:
+                out = dict(sem)
+                out["session_id"] = sid
+                out["cache_status"] = "semantic_hit"
+                out.pop("semantic_sim", None)
+                out["latency_ms"] = int((time.time() - t0) * 1000)
+                STORE.append(sid, "user", question)
+                STORE.append(sid, "assistant", out["reply"])
+                print(f"[chat] {question[:60]!r} → semantic_hit "
+                      f"({out['latency_ms']} ms)", flush=True)
+                return out
+        # intent "other" (sapaan/off-topic) tidak memakai slot — lewati
+        # panggilan LLM ekstraksi (hemat token; alur lain tak berubah)
+        slots = (extract_slots(intent, question, history)
+                 if intent != "other" else {})
+        # Memori persistent (§35.7): preferensi optimasi tersimpan jadi
+        # preferensi default bila pengguna tidak menyebutkannya
+        if intent == "route_planning" and not slots.get("preference"):
+            pref = (mem.get("prefs") or {}).get("optimization")
+            if pref in ("tercepat", "termurah", "min_transfers", "longgar"):
+                slots["preference"] = pref
         tool_out = run_tool(intent, slots, question, net, ridership_rows,
                             data_version)
 
@@ -707,12 +787,14 @@ def handle_chat(message: str, session_id: str | None, net,
                              f"{h['content']}" for h in history[-4:]) \
                 or "(kosong)"
             try:
+                mem_block = user_memory.prompt_block(mem)
                 reply = llm.chat([
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": (
                         f"<Sejarah percakapan>\n{hist}\n"
                         f"</Sejarah percakapan>\n\n"
-                        f"<Pertanyaan> {question} </Pertanyaan>\n"
+                        + (f"{mem_block}\n\n" if mem_block else "")
+                        + f"<Pertanyaan> {question} </Pertanyaan>\n"
                         f"<Intent> {intent} (kepercayaan {conf:.2f}) </Intent>\n"
                         f"<Slot> {json.dumps(slots, ensure_ascii=False)} </Slot>\n"
                         f"<Konteks>\n{ctx}\n</Konteks>")},
@@ -740,10 +822,20 @@ def handle_chat(message: str, session_id: str | None, net,
             "prompt_version": PROMPT_VERSION,
             "latency_ms": int((time.time() - t0) * 1000),
         }
-        # jangan cache jawaban ambigu / need clarification (spesifikasi §11.6)
+        # jangan cache jawaban ambigu / need clarification (spesifikasi
+        # §11.6). Jawaban FALLBACK TEMPLATE (llm=False, mis. saat
+        # rate-limit 429) juga TIDAK di-cache: 429 bersifat sementara,
+        # dan meng-cache jawaban template akan "mengunci" pertanyaan
+        # itu di kualitas rendah selama TTL. Tool result tetap
+        # ter-cache (deterministik) — retry hanya membayar ulang LLM.
         routest = (tool_out.get("result") or {}).get("status")
-        if routest not in ("ambiguous", "need_od"):
+        if routest not in ("ambiguous", "need_od") and llm_used:
             store.set(key, payload, TTL_EXACT_SEC)
+            # semantic cache: jawaban personal tak boleh disimpan global
+            # (§35.9) — gate sama seperti saat lookup
+            if not personal:
+                semantic_cache.store(intent, question, slots, payload,
+                                     data_version, PROMPT_VERSION)
     finally:
         if lock_taken:
             store.release_lock(lock_key)

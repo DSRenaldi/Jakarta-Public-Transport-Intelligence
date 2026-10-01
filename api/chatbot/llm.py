@@ -133,9 +133,44 @@ def chat(messages: list[dict], temperature: float = 0.15,
                        f"{resp.text[:300]}")
     data = resp.json()
     try:
-        return data["choices"][0]["message"]["content"].strip()
+        choice = data["choices"][0]
     except (KeyError, IndexError) as e:
         raise LLMError(f"respons Groq tidak terduga: {str(data)[:300]}") from e
+    content = ((choice.get("message") or {}).get("content") or "").strip()
+    if choice.get("finish_reason") == "length" and len(content) < 400:
+        # Jawaban kita dibatasi ~170 kata; truncation di bawah 400 char
+        # = respons terpotong (sering saat limit TPM akun tersentuh di
+        # tengah generasi). Jangan sajikan setengah kalimat: retry 1x,
+        # bila masih terpotong → LLMError → template fallback (lengkap).
+        if attempt == 1:
+            print("[llm] respons terpotong (finish_reason=length) — retry",
+                  flush=True)
+            time.sleep(1.0)
+            try:
+                resp2 = httpx.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {key}",
+                             "Content-Type": "application/json"},
+                    json={"model": model_name(), "messages": messages,
+                          "temperature": temperature,
+                          "max_tokens": max_tokens},
+                    timeout=TIMEOUT_SEC,
+                )
+            except httpx.HTTPError:
+                raise LLMError("retry LLM gagal (jaringan); "
+                               "pakai template")
+            if resp2.status_code == 200:
+                d2 = resp2.json()
+                c2 = (d2.get("choices", [{}])[0]
+                      .get("message", {}).get("content") or "").strip()
+                if (len(c2) >= 400
+                        or d2["choices"][0].get("finish_reason") != "length"):
+                    return c2
+        raise LLMError("LLM terpotong (finish_reason=length) dua kali; "
+                       "pakai template")
+    if not content:
+        raise LLMError("LLM mengembalikan konten kosong")
+    return content
 
 
 def extract_json(system: str, user: str, max_tokens: int = 300) -> dict:

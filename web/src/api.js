@@ -40,13 +40,31 @@ export const ragQuery = ({ query, top_k, operator, mode, doc_type, label }) =>
     body: JSON.stringify({ query, top_k, operator: operator || null, mode: mode || null, doc_type: doc_type || null, label: label || null }),
   })
 
-export const askChat = (message, sessionId) =>
+export const askChat = (message, sessionId, userId) =>
   api('/api/chat', {
     method: 'POST',
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({
+      message,
+      session_id: sessionId,
+      user_id: userId || null,
+    }),
   })
 
 export const getChatStatus = () => api('/api/chat/status')
+
+// Persistent user memory (§35) — user_id = UUID opaque buatan klien
+export const getMemory = (userId) =>
+  api(`/api/memory?user_id=${encodeURIComponent(userId)}`)
+
+export const deleteMemory = (userId, memoryId) =>
+  api(`/api/memory/${memoryId}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  })
+
+export const deleteAllMemory = (userId) =>
+  api(`/api/memory?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  })
 
 export const getRidership = (mode, periodType) => {
   const p = new URLSearchParams()

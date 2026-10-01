@@ -442,3 +442,5 @@
 {"q": "krl biasanya sepi jam berapa", "intent": "crowding"}
 {"q": "mrt biasanya padat atau longgar di weekend", "intent": "crowding"}
 {"q": "transjakarta biasanya ramai jam berapa", "intent": "crowding"}
+{"q": "berapa load factor MRT di Dukuh Atas pagi ini?", "intent": "crowding"}
+{"q": "load factor KRL saat jam sibuk biasanya berapa?", "intent": "crowding"}

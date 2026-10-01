@@ -66,6 +66,7 @@ _CROWD_RE = re.compile(r"""
   | \b(?:ramai|padat|sepi|longgar|sesak|penuh)\b.{0,25}\b(?:pagi|siang|sore|malam|hari kerja|akhir pekan|weekend|libur|jam sibuk)\b
   | \bwaktu\s+(?:longgar|padat|sepi|ramai)\b
   | \bbiasanya\b.{0,30}\b(?:ramai|padat|sepi|longgar|sesak|penuh|rame)\b
+  | \bload\s*factor\b
 """, re.IGNORECASE | re.VERBOSE)
 _CROWD_EXCLUDE = {"station_ranking", "policy_document"}
 

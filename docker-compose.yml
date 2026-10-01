@@ -1,0 +1,79 @@
+# JPTI — stack lokal: Postgres(PostGIS) + Redis + API
+#
+# DRAFT — BELUM DIUJI (1 Okt 2026): mesin dev tidak punya Docker.
+# Cara pakai:
+#   1) Isi GROQ_API_KEY di .env.host (atau export di shell):
+#        export GROQ_API_KEY=gsk_...
+#   2) docker compose up --build
+#   3) API di http://localhost:8000  (migrations jalan otomatis saat startup)
+#
+# Catatan:
+# - Image Postgres draft memakai postgis/postgis:16-3.4; dev lokal
+#   memakai Postgres 18 — bump tag bila ada masalah kompatibilitas.
+# - Kredensial di bawah adalah NILAI DEFAULT DEV (jpti/jpti) —
+#   untuk produksi ganti via environment/secret, jangan commit.
+# - Data awal (stops/route_stops/fares/dokumen RAG) HARUS di-ingest
+#   ke DB compose ini (pipelines/*) — volume pgdata persisten.
+# - Frontend (web/) TIDAK termasuk di draft ini: jalankan Vite dev
+#   (npm run dev) yang proxy ke API :8000, atau build (npm run build)
+#   lalu sajikan web/dist dengan server statis (nginx dsb.) dan arahkan
+#   variabel API-nya ke http://<host>:8000.
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-transum_jakarta}
+      POSTGRES_USER: ${PGUSER:-jpti}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-jpti}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-jpti} -d ${PGDATABASE:-transum_jakarta}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${PGUSER:-jpti}
+      PGPASSWORD: ${PGPASSWORD:-jpti}
+      PGDATABASE: ${PGDATABASE:-transum_jakarta}
+      REDIS_URL: redis://redis:6379/0
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      SEMANTIC_CACHE: "1"
+    # App membaca konfigurasi dari file .env (bukan process env),
+    # jadi entrypoint menuliskan /app/.env dari environment di atas.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        printf 'PGHOST=%s\nPGPORT=%s\nPGUSER=%s\nPGPASSWORD=%s\nPGDATABASE=%s\nREDIS_URL=%s\nGROQ_API_KEY=%s\nSEMANTIC_CACHE=%s\n' \
+          "$PGHOST" "$PGPORT" "$PGUSER" "$PGPASSWORD" "$PGDATABASE" \
+          "$REDIS_URL" "$GROQ_API_KEY" "$SEMANTIC_CACHE" > /app/.env
+        python pipelines/migrate.py
+        exec python -m uvicorn api.app:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

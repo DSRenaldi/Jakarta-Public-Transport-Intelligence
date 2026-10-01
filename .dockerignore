@@ -1,0 +1,11 @@
+# JPTI — .dockerignore
+.git
+.gitignore
+.venv
+.work
+data
+docs
+web
+.env
+.env.*
+*.md

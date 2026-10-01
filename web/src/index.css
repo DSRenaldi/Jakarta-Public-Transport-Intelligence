@@ -275,6 +275,8 @@ select.mode-select:focus, input.stop-input:focus, input.rag-input:focus, .btn:fo
   display: flex; align-items: center; gap: 7px;
 }
 .chip:hover { border-color: var(--accent); background: #f2f6fd; }
+.chip i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.chip.on { border-color: var(--accent); background: #e8f0fe; font-weight: 600; }
 .ambig { margin-bottom: 14px; }
 .ambig-label { margin: 0 0 7px; font-weight: 600; font-size: 14px; }
 
@@ -305,6 +307,14 @@ select.mode-select:focus, input.stop-input:focus, input.rag-input:focus, .btn:fo
 
 .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .chart-card h3 { margin-top: 0; }
+
+.mode-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0 16px; }
+.mode-filter .chips { margin-top: 0; }
+.mode-filter-label { font-weight: 600; font-size: 14px; }
+.mode-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; }
+.line-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 210px; overflow: auto; margin-top: 10px; }
+.line-list .chip { cursor: default; }
+.line-list .chip:hover { border-color: var(--line); background: var(--surface); }
 
 /* ---------- galeri peta ---------- */
 .mapbox img {
@@ -398,6 +408,27 @@ select.mode-select:focus, input.stop-input:focus, input.rag-input:focus, .btn:fo
 }
 .chat-src:hover { background: #e8f0fe; }
 .chat-meta { margin: 7px 0 0; font-size: 11.5px; color: var(--sub); }
+.mem-panel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 10px; padding: 8px 10px;
+  background: #f6f8fb; border: 1px solid var(--line); border-radius: 8px;
+}
+.mem-title { font-size: 12px; color: var(--sub); font-weight: 600; }
+.mem-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; background: #fff; border: 1px solid #d5e3f8;
+  color: var(--ink); border-radius: 999px; padding: 2px 6px 2px 10px;
+}
+.mem-x {
+  border: 0; background: transparent; color: var(--sub); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 1px 4px; border-radius: 50%;
+}
+.mem-x:hover { background: #ffe9e9; color: #b3261e; }
+.mem-clear {
+  border: 0; background: transparent; color: var(--sub); cursor: pointer;
+  font-size: 11.5px; text-decoration: underline; padding: 2px 4px;
+}
+.mem-clear:hover { color: #b3261e; }
 .chat-suggest { padding: 10px 14px 0; background: var(--surface); }
 .chat-suggest .chips { margin-top: 0; }
 .typing { display: inline-flex; gap: 5px; padding: 5px 0; }

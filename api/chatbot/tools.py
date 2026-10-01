@@ -273,28 +273,109 @@ def rag_sources(rag_result: dict) -> list[dict]:
 # terbatas. LLM tetap tidak menyentuh angka: tool mengembalikan data
 # terstruktur + sumber (prinsip §9 context.md).
 
-def tool_fare(mode: str | None = None) -> dict:
+def _mrt_stop_matches(cur, name: str) -> list[str]:
+    """Cocokkan nama bebas -> stop_id MRT (canonical, display, alias
+    stop_name_history). Persis = prioritas; substring hanya utk query
+    >= 3 karakter. Mengembalikan 0/1/banyak (banyak = ambigu)."""
+    q = (name or "").strip().lower()
+    if not q:
+        return []
+    cur.execute("""SELECT stop_id_internal, canonical_name, display_name
+                   FROM stops WHERE mode_id = 'MRT'""")
+    stops = cur.fetchall()
+    cur.execute("""SELECT h.stop_id_internal, h.name
+                   FROM stop_name_history h
+                   JOIN stops s USING (stop_id_internal)
+                   WHERE s.mode_id = 'MRT'""")
+    aliases = cur.fetchall()
+    matches: set[str] = set()
+    for sid, canon, disp in stops:
+        for nm in (canon, disp):
+            if not nm:
+                continue
+            n = nm.lower()
+            if n == q or (len(q) >= 3 and (q in n or n in q)):
+                matches.add(sid)
+    for sid, nm in aliases:
+        n = nm.lower()
+        if n == q or (len(q) >= 3 and (q in n or n in q)):
+            matches.add(sid)
+    return sorted(matches)
+
+
+def _mrt_pair_fare(cur, origin: str, dest: str) -> dict | None:
+    """Tarif per pasangan dari matriks resmi MRT (fare_type='matrix').
+
+    Matriks terarah & asimetris di beberapa sel; arah langsung
+    diprioritaskan, arah balik sebagai fallback. None bila nama tidak
+    cocok / ambigu / pasangan tak ada.
+    """
+    o_ids = _mrt_stop_matches(cur, origin)
+    d_ids = _mrt_stop_matches(cur, dest)
+    if not o_ids or not d_ids or len(o_ids) > 1 or len(d_ids) > 1:
+        return None
+    o, d = o_ids[0], d_ids[0]
+    if o == d:
+        return None
+    cur.execute("""SELECT price_idr, valid_from, legal_basis, source_id
+                   FROM fares
+                   WHERE mode_id = 'MRT' AND fare_type = 'matrix'
+                     AND ((from_stop_id = %s AND to_stop_id = %s)
+                          OR (from_stop_id = %s AND to_stop_id = %s))
+                   ORDER BY (from_stop_id = %s) DESC""",
+                (o, d, d, o, o))
+    r = cur.fetchone()
+    if not r:
+        return None
+    names = {}
+    for sid in (o, d):
+        cur.execute("""SELECT canonical_name FROM stops
+                       WHERE stop_id_internal = %s""", (sid,))
+        names[sid] = cur.fetchone()[0]
+    return {"origin": names[o], "dest": names[d], "price_idr": r[0],
+            "valid_from": r[1].isoformat() if r[1] else None,
+            "legal_basis": r[2] or None, "source_id": r[3] or None,
+            "note": ("Tarif per pasangan dari matriks resmi MRT Jakarta "
+                     "(Pergub DKI 34/2019, snapshot halaman resmi "
+                     "2026-06-14). Arah ditelusuri sesuai matriks — "
+                     "beberapa sel asimetris.")}
+
+
+def tool_fare(mode: str | None = None, origin: str | None = None,
+              dest: str | None = None) -> dict:
     """Tarif per moda dari tabel fares (min/max/flat + dasar hukum + sumber).
 
-    Baris di-group per (moda, operator, tipe, harga); n_routes = jumlah
+    Baris di-group per (moda, operator, tipe, harga); n_entries = jumlah
     baris asal (GTFS TransJakarta punya banyak baris per harga).
+    Baris fare_type='matrix' (matriks per-pasangan MRT) TIDAK masuk
+    agregat — ditangani oleh lookup per-pasangan (origin/dest) dan
+    diringkas di `matrix_summary`.
     """
     conn = connect()
     try:
         cur = conn.cursor()
+        pair = None
+        if (mode and mode.upper() == "MRT" and origin and dest):
+            pair = _mrt_pair_fare(cur, origin, dest)
         sql = """SELECT mode_id, operator_id, fare_type, price_idr,
                         valid_from, legal_basis, source_id, notes
-                 FROM fares"""
+                 FROM fares
+                 WHERE fare_type <> 'matrix'"""
         args: tuple = ()
         if mode:
-            sql += " WHERE mode_id = %s"
+            sql += " AND mode_id = %s"
             args = (mode.upper(),)
         sql += " ORDER BY mode_id, operator_id, fare_type"
         cur.execute(sql, args)
         rows = cur.fetchall()
+        cur.execute("""SELECT COUNT(*), MIN(price_idr), MAX(price_idr)
+                       FROM fares WHERE fare_type = 'matrix'"""
+                    + (" AND mode_id = %s" if mode else ""),
+                    (mode.upper(),) if mode else ())
+        mrow = cur.fetchone()
     finally:
         conn.close()
-    if not rows:
+    if not rows and not (mrow and mrow[0]):
         return {"available": False,
                 "note": f"tabel fares tidak punya baris untuk mode={mode}"}
     agg: dict[tuple, dict] = {}
@@ -324,8 +405,20 @@ def tool_fare(mode: str | None = None) -> dict:
     if zero:
         note += (" Baris Rp0 (TransJakarta/GTFS) = rute tanpa aturan tarif "
                  "di file GTFS — bukan layanan gratis.")
-    return {"available": True, "mode": (mode or "SEMUA").upper(),
-            "entries": entries, "note": note}
+    res: dict = {"available": True, "mode": (mode or "SEMUA").upper(),
+                 "entries": entries, "note": note}
+    if mrow and mrow[0]:
+        res["matrix_summary"] = {
+            "pairs_directed": mrow[0],
+            "min_idr": mrow[1], "max_idr": mrow[2],
+            "note": ("Matriks tarif per-pasangan MRT Jakarta (13x13, "
+                     "156 arah). Untuk pertanyaan 'dari X ke Y', lihat "
+                     "blok `pair`; bila tak ada, tarifnya ada di antara "
+                     "min dan max di atas (label historis — snapshot "
+                     "resmi 2026-06-14, berlaku 1 Apr 2019).")}
+    if pair:
+        res["pair"] = pair
+    return res
 
 
 def _line_mode(line_id: str) -> str | None:

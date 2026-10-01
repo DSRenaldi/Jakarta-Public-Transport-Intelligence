@@ -190,6 +190,9 @@ class RagRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
     session_id: str | None = Field(default=None, max_length=64)
+    # ID pengguna utk persistent memory (§35) — UUID opaque buatan
+    # klien (localStorage); tanpa akun pada MVP
+    user_id: str | None = Field(default=None, max_length=64)
 
 
 # ---------- endpoints ----------
@@ -388,7 +391,7 @@ def chat(req: ChatRequest):
     try:
         return chatbot_chat.handle_chat(
             req.message, req.session_id, STATE.net, STATE.ridership,
-            STATE.data_version)
+            STATE.data_version, user_id=req.user_id)
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001
@@ -403,5 +406,99 @@ def chat_status():
         "intent_model": (STATE.chat_intent or
                          {"error": "belum dimuat"}),
         "cache": chatbot_chat.cache_info(),
+        "semantic_cache": chatbot_chat.semantic_cache.stats(),
         "prompt_version": chatbot_chat.PROMPT_VERSION,
     }
+
+
+# ---------- persistent user memory (Fase 5, context.md §35.12) ----------
+# MVP tanpa akun: user_id = UUID opaque buatan klien; setiap query
+# wajib difilter user_id (§35.11). Penghapusan idempoten + soft-delete
+# dgn audit memory_events.
+
+from chatbot import memory as mem_mod  # noqa: E402
+
+
+def _mem_public(row: dict) -> dict:
+    return {
+        "memory_id": row["memory_id"],
+        "memory_type": row["memory_type"],
+        "memory_key": row["memory_key"],
+        "memory_value": row["memory_value"],
+        "created_at": row["created_at"].isoformat(),
+        "updated_at": row["updated_at"].isoformat(),
+        "expires_at": (row["expires_at"].isoformat()
+                       if row.get("expires_at") else None),
+    }
+
+
+@app.get("/api/memory")
+def memory_list(user_id: str = Query(min_length=8, max_length=64)):
+    rows = mem_mod.list_rows(user_id)
+    return {
+        "user_id": mem_mod.sanitize_user_id(user_id),
+        "version": mem_mod.load(user_id)["version"],
+        "memories": [_mem_public(r) for r in rows],
+    }
+
+
+class MemoryIn(BaseModel):
+    user_id: str = Field(min_length=8, max_length=64)
+    memory_key: str = Field(min_length=1, max_length=64)
+    memory_type: str = Field(
+        default="preference", pattern="^(preference|journey|feedback)$")
+    memory_value: dict = Field(default_factory=dict)
+
+
+@app.post("/api/memory", status_code=201)
+def memory_create(req: MemoryIn):
+    ok, err = mem_mod.remember(req.user_id, req.memory_type,
+                               req.memory_key, req.memory_value,
+                               source="api_manual")
+    if not ok:
+        raise HTTPException(422, err or "tidak dapat menyimpan")
+    return {"ok": True}
+
+
+class MemoryPatch(BaseModel):
+    user_id: str = Field(min_length=8, max_length=64)
+    memory_value: dict
+
+
+@app.patch("/api/memory/{memory_id}")
+def memory_update(memory_id: int, body: MemoryPatch):
+    uid = mem_mod.sanitize_user_id(body.user_id)
+    try:
+        conn = connect()
+        try:
+            conn.row_factory = dict_row
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT memory_key, memory_type FROM user_memories
+                   WHERE memory_id = %s AND user_id = %s
+                     AND status = 'active'""", (memory_id, uid))
+            row = cur.fetchone()
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"query memori gagal: {e}") from e
+    if not row:
+        raise HTTPException(404, "memori tidak ditemukan")
+    ok, err = mem_mod.remember(uid, row["memory_type"], row["memory_key"],
+                               body.memory_value, source="api_manual")
+    if not ok:
+        raise HTTPException(422, err or "tidak dapat menyimpan")
+    return {"ok": True}
+
+
+@app.delete("/api/memory/{memory_id}")
+def memory_delete_one(memory_id: int,
+                      user_id: str = Query(min_length=8, max_length=64)):
+    n = mem_mod.forget(user_id, memory_id)
+    return {"deleted": n}  # idempoten: 0 bila sudah terhapus (§35.11)
+
+
+@app.delete("/api/memory")
+def memory_delete_all(user_id: str = Query(min_length=8, max_length=64)):
+    n = mem_mod.forget(user_id)
+    return {"deleted": n}
