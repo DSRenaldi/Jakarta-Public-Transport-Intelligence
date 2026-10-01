@@ -20,8 +20,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "pipelines"))
 from db import load_env  # noqa: E402
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 TIMEOUT_SEC = 90.0
+
+# Prioritas model chat bila model default tak ada di akun (akses model Groq
+# berbeda per akun/wilayah; daftar diverifikasi via GET /models).
+_MODEL_PRIORITY = [
+    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-20b",
+]
+_MODEL_SKIP = ("safeguard", "prompt-guard", "whisper")
+_resolved_model = None
 
 
 def _env() -> dict:
@@ -32,8 +44,44 @@ def configured() -> bool:
     return bool(_env().get("GROQ_API_KEY", "").strip())
 
 
+def _pick_model(ids: list[str]) -> str | None:
+    for p in _MODEL_PRIORITY:
+        if p in ids:
+            return p
+    for i in ids:
+        if not any(s in i.lower() for s in _MODEL_SKIP):
+            return i
+    return None
+
+
 def model_name() -> str:
-    return _env().get("GROQ_MODEL", "").strip() or DEFAULT_MODEL
+    """Model yang dipakai: pin `GROQ_MODEL` (bila diset) > resolusi otomatis
+    dari daftar model akun (dicache per proses) > default."""
+    global _resolved_model
+    env = _env()
+    pin = env.get("GROQ_MODEL", "").strip()
+    if pin:
+        return pin
+    if _resolved_model:
+        return _resolved_model
+    key = env.get("GROQ_API_KEY", "").strip()
+    if key:
+        try:
+            resp = httpx.get(GROQ_MODELS_URL,
+                             headers={"Authorization": f"Bearer {key}"},
+                             timeout=30.0)
+            resp.raise_for_status()
+            ids = [m.get("id", "") for m in resp.json().get("data", [])]
+            pick = _pick_model(ids)
+            if pick:
+                _resolved_model = pick
+                if pick != DEFAULT_MODEL:
+                    print(f"[llm] model default tak tersedia di akun — "
+                          f"memakai {pick}", flush=True)
+                return pick
+        except httpx.HTTPError as e:
+            print(f"[llm] gagal mengambil daftar model Groq: {e}", flush=True)
+    return DEFAULT_MODEL
 
 
 class LLMError(RuntimeError):
