@@ -115,7 +115,15 @@ def chat(messages: list[dict], temperature: float = 0.15,
             raise LLMError(f"jaringan ke Groq gagal: {e}") from e
         if resp.status_code in (408, 425, 429, 500, 502, 503, 504) \
                 and attempt == 1:
-            time.sleep(2.0)
+            wait = 2.0
+            if resp.status_code == 429:
+                # free tier: jendela TPM rolling — hormati "try again in X s"
+                # (sleep tetap dibatasi 10 dtk; jika tetap gagal, jawaban
+                # jatuh ke template fallback)
+                m = re.search(r"try again in ([\d.]+)s", resp.text, re.I)
+                if m:
+                    wait = min(max(float(m.group(1)) + 0.5, 2.0), 10.0)
+            time.sleep(wait)
             continue
         break
     if resp is None:

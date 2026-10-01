@@ -2,10 +2,12 @@
 """Orkestrator chatbot JPTI — arsitektur "B" (ML klasik + LLM + RAG).
 
 Alur per pertanyaan (context.md §18, §24.3):
-  1. exact-response cache in-memory (TTL 6 jam; §11.2-A)
+  1. exact-response cache (Redis atau in-memory, TTL 6 jam; §11.2-A)
   2. classifier intent sklearn (intents.py) — BUKAN LLM
   3. ekstraksi slot: LLM (JSON ketat) / fallback regex bila LLM belum diset
   4. eksekusi tool: rute (netload) / ridership (DB CSV) / RAG (rag_query)
+     — hasil tool di-cache per argumen (§11.2-C); lock single-flight
+     mencegah stampede pada key yang sama (§11.6)
   5. penyusunan jawaban: LLM (natural) / template (fallback tanpa key)
 
 Prinsip jawaban §7: angka hanya dari tool, sumber + periode, label
@@ -19,12 +21,13 @@ import time
 from datetime import datetime
 
 from . import intents, llm, tools
+from .cache_store import (NS_EXACT, NS_LOCK, NS_PREDICTION, NS_ROUTE,
+                          NS_TOOL, TTL_EXACT_SEC, TTL_FARE_SCHEDULE_SEC,
+                          TTL_PREDICTION_SEC, TTL_RAG_SEC, TTL_ROUTE_SEC,
+                          TTL_RIDERSHIP_SEC, get_store)
 from .session import STORE
 
 PROMPT_VERSION = "chat-v2"
-CACHE_TTL_SEC = 6 * 3600
-CACHE_MAX = 500
-_CACHE: dict[str, dict] = {}
 
 SYSTEM_PROMPT = """Kamu adalah asisten percakapan JPTI untuk transportasi umum Jabodetabek (MRT Jakarta, KRL Commuter Line, LRT Jakarta, LRT Jabodebek, TransJakarta).
 
@@ -67,32 +70,35 @@ def _extract_user_spec(intent: str) -> str:
     return "lainnya: {}"
 
 
-# ---------- normalisasi & cache ----------
+# ---------- normalisasi & cache (§11.2-A, §11.5, §11.6) ----------
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
-def _cache_get(key: str):
-    hit = _CACHE.get(key)
-    if hit and time.time() - hit["ts"] < CACHE_TTL_SEC:
-        return hit["payload"]
-    if hit:
-        del _CACHE[key]
-    return None
+def _exact_key(question: str, data_version: str) -> str:
+    """Key exact cache: versi prompt + versi data + pertanyaan dinormalisasi.
 
-
-def _cache_put(key: str, payload: dict):
-    if len(_CACHE) >= CACHE_MAX:
-        oldest = min(_CACHE, key=lambda k: _CACHE[k]["ts"])
-        del _CACHE[oldest]
-    _CACHE[key] = {"payload": payload, "ts": time.time()}
+    Ingest baru → data_version baru → key baru (invalidasi alami §11.6).
+    """
+    h = hashlib.sha1(question.lower().encode("utf-8")).hexdigest()
+    return f"{NS_EXACT}:{PROMPT_VERSION}|{data_version}|{h}"
 
 
 def cache_info() -> dict:
-    now = time.time()
-    return {"entries": sum(1 for v in _CACHE.values()
-                           if now - v["ts"] < CACHE_TTL_SEC)}
+    """Status cache per namespace (untuk /api/chat/status)."""
+    store = get_store()
+    return {
+        "backend": store.name,
+        "health": store.health(),
+        "entries": {
+            "exact": store.count(NS_EXACT),
+            "tool": store.count(NS_TOOL),
+            "route": store.count(NS_ROUTE),
+            "prediction": store.count(NS_PREDICTION),
+            "session": STORE.count(),
+        },
+    }
 
 
 # ---------- ekstraksi slot ----------
@@ -199,8 +205,31 @@ def extract_slots(intent: str, question: str,
 
 # ---------- tool ----------
 
+def _tool_cached(ns: str, subkey: str, ttl: int, fn, cacheable) -> dict:
+    """Cache hasil tool (§11.2-C). Hanya hasil stabil yang di-cache;
+    error/kosong/ambigu TIDAK di-cache (§11.6) sehingga pertanyaan
+    berikutnya tetap mencoba sumber data lagi."""
+    store = get_store()
+    key = f"{ns}:{subkey}"
+    hit = store.get(key)
+    if hit is not None:
+        return hit
+    res = fn()
+    if cacheable(res):
+        store.set(key, res, ttl)
+    return res
+
+
+def _rag_cached(question: str, top_k: int) -> dict:
+    subkey = hashlib.sha1(
+        f"rag|{question.lower()}|{top_k}".encode("utf-8")).hexdigest()
+    return _tool_cached(NS_TOOL, "rag|" + subkey, TTL_RAG_SEC,
+                        lambda: tools.rag(question, top_k=top_k),
+                        lambda r: bool(r.get("available")))
+
+
 def run_tool(intent: str, slots: dict, question: str, net,
-             ridership_rows: list[dict]) -> dict:
+             ridership_rows: list[dict], data_version: str = "") -> dict:
     if intent == "route_planning":
         origin, dest = slots.get("origin"), slots.get("dest")
         if not origin or not dest:
@@ -208,45 +237,87 @@ def run_tool(intent: str, slots: dict, question: str, net,
         prefer = slots.get("preference") or "tercepat"
         if prefer not in ("tercepat", "termurah", "min_transfers", "longgar"):
             prefer = "tercepat"
-        return {"tool": "route", "result": tools.plan_route(
-            net, origin, dest, prefer)}
+        subkey = (data_version + "|" + hashlib.sha1(
+            f"{origin}|{dest}|{prefer}".encode("utf-8")).hexdigest())
+        result = _tool_cached(
+            NS_ROUTE, subkey, TTL_ROUTE_SEC,
+            lambda: tools.plan_route(net, origin, dest, prefer),
+            # ok & no_route deterministik per versi jaringan;
+            # ambiguous/not_found/need_od tidak di-cache (§11.6)
+            lambda r: r.get("status") in ("ok", "no_route"))
+        return {"tool": "route", "result": result}
     if intent == "ridership_statistics":
-        return {"tool": "ridership", "result": tools.ridership_summary(
-            ridership_rows, slots.get("mode"), slots.get("period"))}
+        subkey = (data_version + "|" + hashlib.sha1(
+            f"ridership|{slots.get('mode')}|{slots.get('period')}"
+            .encode("utf-8")).hexdigest())
+        result = _tool_cached(
+            NS_TOOL, subkey, TTL_RIDERSHIP_SEC,
+            lambda: tools.ridership_summary(ridership_rows,
+                                            slots.get("mode"),
+                                            slots.get("period")),
+            lambda r: bool(r.get("available")))
+        return {"tool": "ridership", "result": result}
     if intent == "mode_comparison":
-        return {"tool": "compare", "result": tools.compare_modes(
-            ridership_rows, slots.get("period"))}
+        subkey = (data_version + "|" + hashlib.sha1(
+            f"compare|{slots.get('period')}".encode("utf-8")).hexdigest())
+        result = _tool_cached(
+            NS_TOOL, subkey, TTL_RIDERSHIP_SEC,
+            lambda: tools.compare_modes(ridership_rows, slots.get("period")),
+            lambda r: bool(r.get("rows")))
+        return {"tool": "compare", "result": result}
     if intent == "station_ranking":
         mode = slots.get("mode") or _mode_from_text(question) or ""
         q = f"stasiun halte paling ramai paling banyak penumpang {mode}".strip()
-        return {"tool": "rag", "result": tools.rag(q),
+        return {"tool": "rag", "result": _rag_cached(q, top_k=4),
                 "note": "Data tap-in/tap-out per stasiun belum tersedia di "
                         "database (data gap); jawaban bersandar pada dokumen "
                         "resmi yang ditemukan RAG."}
     if intent == "fare_query":
         mode = slots.get("mode") or _mode_from_text(question)
-        return {"tool": "fare", "result": tools.tool_fare(mode)}
+        subkey = (data_version + "|" + hashlib.sha1(
+            f"fare|{mode}".encode("utf-8")).hexdigest())
+        result = _tool_cached(
+            NS_TOOL, subkey, TTL_FARE_SCHEDULE_SEC,
+            lambda: tools.tool_fare(mode),
+            lambda r: bool(r.get("available")))
+        return {"tool": "fare", "result": result}
     if intent == "schedule_query":
         mode = slots.get("mode") or _mode_from_text(question)
-        return {"tool": "schedule",
-                "result": tools.tool_schedule(mode, net)}
+        subkey = (data_version + "|" + hashlib.sha1(
+            f"schedule|{mode}".encode("utf-8")).hexdigest())
+        result = _tool_cached(
+            NS_TOOL, subkey, TTL_FARE_SCHEDULE_SEC,
+            lambda: tools.tool_schedule(mode, net),
+            lambda r: bool(r.get("available")))
+        return {"tool": "schedule", "result": result}
     if intent == "crowding":
         mode = slots.get("mode") or _mode_from_text(question)
         day = slots.get("day_type")
         days = [day] if day in ("weekday", "weekend") \
             else ["weekday", "weekend"]
-        if slots.get("time"):
-            data = {"estimates": [tools.crowding_estimate(mode=mode,
-                        t=slots.get("time"), day_type=d) for d in days]}
-        else:
-            # tanpa jam spesifik → ringkasan harian (rentang jam per
-            # kategori), bukan estimasi satu titik waktu
-            data = {"daily": [tools.crowding_daily(mode=mode, day_type=d)
-                              for d in days]}
-        return {"tool": "crowding",
-                "result": {**data,
-                           "headways": tools.tool_schedule(mode, net),
-                           "rag": tools.rag(question, top_k=2)},
+        t = slots.get("time")
+        # hasil = estimasi/ringkasan harian (model deterministik) +
+        # headway + RAG; seluruhnya di-cache sebagai satu entri
+        # (model version + argumen + pertanyaan utk bagian RAG)
+        subkey = "|".join([
+            "crowding-v1", str(mode), str(t), "/".join(days),
+            hashlib.sha1(question.lower().encode("utf-8")).hexdigest()])
+        result = _tool_cached(
+            NS_PREDICTION, subkey, TTL_PREDICTION_SEC,
+            lambda: ({
+                "estimates": [tools.crowding_estimate(mode=mode, t=t,
+                                                      day_type=d)
+                              for d in days] if t else [],
+                "daily": [] if t else [tools.crowding_daily(mode=mode,
+                                                            day_type=d)
+                                       for d in days],
+                "headways": tools.tool_schedule(mode, net),
+                "rag": _rag_cached(question, top_k=2),
+            }),
+            lambda r: any(e.get("available")
+                          for e in (r.get("estimates") or [])
+                          + (r.get("daily") or [])))
+        return {"tool": "crowding", "result": result,
                 "note": "Data penumpang per jam TIDAK tersedia. Estimasi "
                         "adalah model pola (crowding-v1, label proksi), "
                         "bukan pengukuran. Sebutkan label + sumbernya; "
@@ -254,7 +325,7 @@ def run_tool(intent: str, slots: dict, question: str, net,
     if intent == "other":
         return {"tool": None, "result": None}
     # policy_document → RAG
-    return {"tool": "rag", "result": tools.rag(question, top_k=4)}
+    return {"tool": "rag", "result": _rag_cached(question, top_k=4)}
 
 
 # ---------- susun konteks untuk LLM ----------
@@ -593,12 +664,11 @@ def handle_chat(message: str, session_id: str | None, net,
     sid = STORE.get_id(session_id)
     history = STORE.history(sid)
 
-    key = hashlib.sha1(
-        f"{PROMPT_VERSION}|{data_version}|{question.lower()}"
-        .encode("utf-8")).hexdigest()
-    cached = _cache_get(key)
-    if cached is not None:
-        out = dict(cached)
+    key = _exact_key(question, data_version)
+    store = get_store()
+
+    def _hit(out: dict) -> dict:
+        out = dict(out)
         out["session_id"] = sid
         out["cache_status"] = "exact_hit"
         out["latency_ms"] = int((time.time() - t0) * 1000)
@@ -606,53 +676,77 @@ def handle_chat(message: str, session_id: str | None, net,
         STORE.append(sid, "assistant", out["reply"])
         return out
 
-    intent, conf = intents.classify(question)
-    slots = extract_slots(intent, question, history)
-    tool_out = run_tool(intent, slots, question, net, ridership_rows)
+    cached = store.get(key)
+    if cached is not None:
+        return _hit(cached)
 
-    llm_used = False
-    if llm.configured():
-        ctx = _build_context(tool_out, slots)
-        hist = "\n".join(f"{'P' if h['role'] == 'user' else 'J'}: "
-                         f"{h['content']}" for h in history[-4:]) or "(kosong)"
-        try:
-            reply = llm.chat([
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": (
-                    f"<Sejarah percakapan>\n{hist}\n"
-                    f"</Sejarah percakapan>\n\n"
-                    f"<Pertanyaan> {question} </Pertanyaan>\n"
-                    f"<Intent> {intent} (kepercayaan {conf:.2f}) </Intent>\n"
-                    f"<Slot> {json.dumps(slots, ensure_ascii=False)} </Slot>\n"
-                    f"<Konteks>\n{ctx}\n</Konteks>")},
-            ])
-            llm_used = True
-        except llm.LLMError as e:
-            print(f"[chat] LLM gagal, pakai template: {e}", flush=True)
+    # Lock single-flight (§11.6): hanya satu proses/thread yang menghitung
+    # key ini; sisanya menunggu hasil muncul di cache (mencegah cache
+    # stampede saat banyak pertanyaan identik datang bersamaan).
+    lock_key = f"{NS_LOCK}:exact:{key}"
+    lock_taken = store.acquire_lock(lock_key)
+    deadline = time.time() + 15
+    while not lock_taken and time.time() < deadline:
+        time.sleep(0.25)
+        cached = store.get(key)
+        if cached is not None:
+            return _hit(cached)
+        if not store.lock_held(lock_key):
+            break  # lock lepas tapi cache kosong → hitung sendiri
+
+    try:
+        intent, conf = intents.classify(question)
+        slots = extract_slots(intent, question, history)
+        tool_out = run_tool(intent, slots, question, net, ridership_rows,
+                            data_version)
+
+        llm_used = False
+        if llm.configured():
+            ctx = _build_context(tool_out, slots)
+            hist = "\n".join(f"{'P' if h['role'] == 'user' else 'J'}: "
+                             f"{h['content']}" for h in history[-4:]) \
+                or "(kosong)"
+            try:
+                reply = llm.chat([
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": (
+                        f"<Sejarah percakapan>\n{hist}\n"
+                        f"</Sejarah percakapan>\n\n"
+                        f"<Pertanyaan> {question} </Pertanyaan>\n"
+                        f"<Intent> {intent} (kepercayaan {conf:.2f}) </Intent>\n"
+                        f"<Slot> {json.dumps(slots, ensure_ascii=False)} </Slot>\n"
+                        f"<Konteks>\n{ctx}\n</Konteks>")},
+                ])
+                llm_used = True
+            except llm.LLMError as e:
+                print(f"[chat] LLM gagal, pakai template: {e}", flush=True)
+                reply = fallback_reply(intent, slots, tool_out)
+        else:
             reply = fallback_reply(intent, slots, tool_out)
-    else:
-        reply = fallback_reply(intent, slots, tool_out)
 
-    sources = _collect_sources(tool_out)
-    payload = {
-        "session_id": sid,
-        "reply": reply,
-        "intent": intent,
-        "intent_confidence": round(conf, 3),
-        "slots": slots,
-        "sources": sources,
-        "data_label": _data_label(tool_out),
-        "data_version": data_version or None,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "cache_status": "miss",
-        "llm": llm_used,
-        "prompt_version": PROMPT_VERSION,
-        "latency_ms": int((time.time() - t0) * 1000),
-    }
-    # jangan cache jawaban ambigu / need clarification (spesifikasi §11.6)
-    routest = (tool_out.get("result") or {}).get("status")
-    if routest not in ("ambiguous", "need_od"):
-        _cache_put(key, payload)
+        sources = _collect_sources(tool_out)
+        payload = {
+            "session_id": sid,
+            "reply": reply,
+            "intent": intent,
+            "intent_confidence": round(conf, 3),
+            "slots": slots,
+            "sources": sources,
+            "data_label": _data_label(tool_out),
+            "data_version": data_version or None,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "cache_status": "miss",
+            "llm": llm_used,
+            "prompt_version": PROMPT_VERSION,
+            "latency_ms": int((time.time() - t0) * 1000),
+        }
+        # jangan cache jawaban ambigu / need clarification (spesifikasi §11.6)
+        routest = (tool_out.get("result") or {}).get("status")
+        if routest not in ("ambiguous", "need_od"):
+            store.set(key, payload, TTL_EXACT_SEC)
+    finally:
+        if lock_taken:
+            store.release_lock(lock_key)
     STORE.append(sid, "user", question)
     STORE.append(sid, "assistant", reply)
     print(f"[chat] {question[:60]!r} → {intent}({conf:.2f}) "

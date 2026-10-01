@@ -71,4 +71,7 @@ Body:
 - Semua angka traceable: `source_id` + `data_label` + `definition_ref`
   (lihat `docs/data-dictionary.md` §5).
 - Kredensial DB dari `.env` (di luar git).
-- Tanpa LLM, tanpa Redis (MVP sesuai cakupan opsi B).
+- Chatbot (`POST /api/chat`, `GET /api/chat/status`): LLM Groq opsional
+  (tanpa key → jawaban template), cache exact/tool/prediksi + session via
+  Redis opsional (tanpa `REDIS_URL` di `.env` → in-memory; namespace & TTL
+  sesuai context.md §11). Detail arsitektur: `api/chatbot/`.

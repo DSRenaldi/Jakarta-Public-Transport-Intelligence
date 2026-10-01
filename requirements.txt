@@ -24,3 +24,4 @@ uvicorn[standard]>=0.54  # ASGI server (jalankan: python -m uvicorn api.app:app 
 # Fase 5 — Chatbot (arsitektur B: ML klasik + LLM + RAG)
 scikit-learn>=1.3     # classifier intent (TF-IDF + RandomForest)
 httpx>=0.27           # klien LLM Groq (OpenAI-compatible)
+redis>=5.0            # cache & session (§11): exact/tool/prediction/session + lock
