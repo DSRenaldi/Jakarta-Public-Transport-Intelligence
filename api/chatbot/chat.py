@@ -29,7 +29,8 @@ from .cache_store import (NS_EXACT, NS_LOCK, NS_PREDICTION, NS_ROUTE,
                           TTL_RIDERSHIP_SEC, get_store)
 from .session import STORE
 
-PROMPT_VERSION = "chat-v3"
+PROMPT_VERSION = "chat-v5"
+RAG_CACHE_VERSION = "rag-v2"
 
 SYSTEM_PROMPT = """Kamu adalah asisten percakapan JPTI untuk transportasi umum Jabodetabek (MRT Jakarta, KRL Commuter Line, LRT Jakarta, LRT Jabodebek, TransJakarta).
 
@@ -48,6 +49,11 @@ Aturan wajib:
 10. Jawab langsung sejak kalimat pertama. Jangan membuka dengan sapaan ("Halo!") atau basa-basi, kecuali pesan pengguna berupa sapaan/terima kasih.
 11. Jangan mengakhiri dengan kalimat standar "ada yang bisa saya bantu"; tutup dengan penawaran konkret yang relevan, atau tanpa penutup.
 12. Jangan menuliskan istilah internal seperti "konteks", "tool", "intent", "slot", atau nama model.
+13. Untuk kepadatan, utamakan saran praktis. Jangan gunakan jargon "proksi" dalam isi jawaban; tulis "perkiraan pola, bukan pengukuran kepadatan langsung". Jangan menampilkan nama/versi model, nama field, skor mentah, atau istilah weekday/weekend.
+14. Gunakan "hari kerja" dan "akhir pekan". Gunakan format waktu Indonesia HH.MM, misalnya 09.30, dan rentang seperti 09.00–16.00.
+15. Rekomendasikan waktu hanya jika waktu tersebut benar-benar berada di rentang kategori yang disebut di <Konteks>. Jangan mengisi celah atau menyimpulkan kategori yang tidak tersedia.
+16. Jangan menawarkan jadwal keberangkatan spesifik stasiun jika <Konteks> hanya memuat headway atau pola kepadatan.
+17. Simpan detail teknis untuk metadata aplikasi; isi jawaban harus mudah dipahami penumpang umum.
 Balas hanya dengan teks jawaban."""
 
 EXTRACT_SYSTEM = """Kamu adalah ekstraktor slot untuk asisten transportasi. Balas HANYA dengan satu JSON object valid, tanpa teks lain."""
@@ -240,9 +246,10 @@ def _tool_cached(ns: str, subkey: str, ttl: int, fn, cacheable) -> dict:
     return res
 
 
-def _rag_cached(question: str, top_k: int) -> dict:
+def _rag_cached(question: str, top_k: int, data_version: str = "") -> dict:
     subkey = hashlib.sha1(
-        f"rag|{question.lower()}|{top_k}".encode("utf-8")).hexdigest()
+        f"{RAG_CACHE_VERSION}|{data_version}|{question.lower()}|{top_k}"
+        .encode("utf-8")).hexdigest()
     return _tool_cached(NS_TOOL, "rag|" + subkey, TTL_RAG_SEC,
                         lambda: tools.rag(question, top_k=top_k),
                         lambda r: bool(r.get("available")))
@@ -286,12 +293,15 @@ def run_tool(intent: str, slots: dict, question: str, net,
             lambda r: bool(r.get("rows")))
         return {"tool": "compare", "result": result}
     if intent == "station_ranking":
-        mode = slots.get("mode") or _mode_from_text(question) or ""
-        q = f"stasiun halte paling ramai paling banyak penumpang {mode}".strip()
-        return {"tool": "rag", "result": _rag_cached(q, top_k=4),
-                "note": "Data tap-in/tap-out per stasiun belum tersedia di "
-                        "database (data gap); jawaban bersandar pada dokumen "
-                        "resmi yang ditemukan RAG."}
+        return {
+            "tool": "unsupported",
+            "result": {
+                "available": False,
+                "reason": "station_ranking_data_unavailable",
+                "note": "Data tap-in/tap-out per stasiun yang dapat "
+                        "dibandingkan belum tersedia di basis data proyek.",
+            },
+        }
     if intent == "fare_query":
         mode = slots.get("mode") or _mode_from_text(question)
         origin = (slots.get("origin") or "").strip() or None
@@ -318,9 +328,8 @@ def run_tool(intent: str, slots: dict, question: str, net,
         days = [day] if day in ("weekday", "weekend") \
             else ["weekday", "weekend"]
         t = slots.get("time")
-        # hasil = estimasi/ringkasan harian (model deterministik) +
-        # headway + RAG; seluruhnya di-cache sebagai satu entri
-        # (model version + argumen + pertanyaan utk bagian RAG)
+        # hasil = estimasi/ringkasan harian (model deterministik) + headway.
+        # RAG tidak dipanggil: annual report bukan sumber jam sibuk.
         subkey = "|".join([
             "crowding-v1", str(mode), str(t), "/".join(days),
             hashlib.sha1(question.lower().encode("utf-8")).hexdigest()])
@@ -334,7 +343,6 @@ def run_tool(intent: str, slots: dict, question: str, net,
                                                             day_type=d)
                                        for d in days],
                 "headways": tools.tool_schedule(mode, net),
-                "rag": _rag_cached(question, top_k=2),
             }),
             lambda r: any(e.get("available")
                           for e in (r.get("estimates") or [])
@@ -347,7 +355,9 @@ def run_tool(intent: str, slots: dict, question: str, net,
     if intent == "other":
         return {"tool": None, "result": None}
     # policy_document → RAG
-    return {"tool": "rag", "result": _rag_cached(question, top_k=4)}
+    return {"tool": "rag",
+            "result": _rag_cached(question, top_k=4,
+                                  data_version=data_version)}
 
 
 # ---------- susun konteks untuk LLM ----------
@@ -368,6 +378,81 @@ def _rag_block(ragres: dict) -> str:
             f"({c.get('source_id')}, terbit {c.get('published_at')}, "
             f"label {c.get('fresh_label')})\n    \"{r['text'][:700]}\"")
     return "\n".join(lines)
+
+
+_DAY_LABELS = {"weekday": "hari kerja", "weekend": "akhir pekan"}
+_CONFIDENCE_LABELS = {
+    "low": "rendah", "medium": "sedang", "high": "tinggi",
+}
+
+
+def _public_time(text: str) -> str:
+    """Ubah waktu mesin HH:MM[-HH:MM] menjadi format baca Indonesia."""
+    return re.sub(
+        r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)",
+        lambda m: f"{int(m.group(1)):02d}.{m.group(2)}",
+        str(text),
+    ).replace("-", "–")
+
+
+def _crowding_context(res: dict, slots: dict | None) -> str:
+    """Konteks crowding siap-baca tanpa membocorkan istilah internal.
+
+    Angka tetap berasal dari tool terstruktur. Bentuk ini mengurangi peluang
+    LLM menyalin nama model, field JSON, atau istilah Inggris ke jawaban.
+    """
+    parts = [
+        "Perkiraan berikut berasal dari pola jendela sibuk dan pola layanan, "
+        "bukan pengukuran kepadatan penumpang secara langsung.",
+    ]
+    ests = [e for e in (res.get("estimates") or []) if e.get("available")]
+    for e in ests:
+        scope = (e.get("scope") or {}).get("name") or "Jabodetabek"
+        day = _DAY_LABELS.get(e.get("day_type"), e.get("day_type") or "")
+        conf = _CONFIDENCE_LABELS.get(e.get("confidence"),
+                                      e.get("confidence") or "tidak tersedia")
+        parts.append(
+            f"- {scope}, {day}, pukul {_public_time(e['time'])}: "
+            f"kategori {e['category']}; tingkat keyakinan {conf}."
+        )
+
+    dails = [d for d in (res.get("daily") or []) if d.get("available")]
+    for d in dails:
+        scope = (d.get("scope") or {}).get("name") or "Jabodetabek"
+        day = _DAY_LABELS.get(d.get("day_type"), d.get("day_type") or "")
+        parts.append(f"- {scope}, {day}:")
+        ranges = d.get("ranges") or {}
+        for category in ("padat", "sedang", "longgar"):
+            spans = [_public_time(v) for v in ranges.get(category, [])]
+            value = ", ".join(spans) if spans else "tidak ada rentang"
+            parts.append(f"  {category}: {value}.")
+        parts.append(
+            "  Rekomendasi hanya boleh mengambil waktu dari rentang "
+            "'longgar' di atas."
+        )
+    if dails and not (slots or {}).get("day_type"):
+        parts.append(
+            "Pengguna belum menentukan jenis hari; jelaskan perbedaan hari "
+            "kerja dan akhir pekan, jangan menggabungkannya."
+        )
+
+    hw = res.get("headways") or {}
+    for line in hw.get("lines", []):
+        peak = (line.get("periods") or {}).get("peak") or {}
+        if not peak:
+            continue
+        windows = _public_time(peak.get("peak_windows") or "")
+        source = (line.get("sources") or [None])[0]
+        src = f"; sumber {source}" if source else ""
+        parts.append(
+            f"- Dasar pola {line.get('line')}: jendela sibuk {windows}; "
+            f"jarak waktu antarlayanan sekitar "
+            f"{peak.get('headway_min')} menit{src}."
+        )
+    parts.append(
+        "Keterbatasan: data penumpang per jam dan per stasiun belum tersedia."
+    )
+    return "\n".join(parts)
 
 
 def _build_context(tool_out: dict, slots: dict | None = None) -> str:
@@ -413,37 +498,17 @@ def _build_context(tool_out: dict, slots: dict | None = None) -> str:
                 "sesuai file jadwal):\n"
                 + json.dumps(res, ensure_ascii=False))
     if tool == "crowding":
-        parts = []
-        ests = [e for e in (res.get("estimates") or []) if e.get("available")]
-        if ests:
-            parts.append("Estimasi model kepadatan crowding-v1 utk jam yang "
-                         "ditanyakan (label proksi — BUKAN pengukuran):\n"
-                         + json.dumps(ests, ensure_ascii=False))
-        dails = [d for d in (res.get("daily") or []) if d.get("available")]
-        if dails:
-            parts.append("Ringkasan harian model kepadatan crowding-v1 "
-                         "(rentang jam per kategori; label proksi — BUKAN "
-                         "pengukuran):\n"
-                         + json.dumps(dails, ensure_ascii=False))
-            if not (slots or {}).get("day_type"):
-                parts.append("(hari tidak disebut pengguna — ringkasan "
-                             "weekday & weekend disertakan; weekday umum "
-                             "lebih padat untuk moda rail)")
-        parts.append("Data pendukung — headway & jendela sibuk per jalur "
-                     "(bukan data penumpang per jam; data per jam TIDAK "
-                     "tersedia):\n"
-                     + json.dumps(res.get("headways") or {},
-                                  ensure_ascii=False))
-        ragres = res.get("rag") or {}
-        if ragres.get("available"):
-            parts.append(_rag_block(ragres))
-        if tool_out.get("note"):
-            parts.append("Catatan: " + tool_out["note"])
-        return "\n\n".join(parts)
+        return _crowding_context(res, slots)
+    if tool == "unsupported":
+        return ("(data tidak tersedia; jelaskan keterbatasan secara langsung "
+                "dan jangan mencari pengganti dari dokumen yang tidak sesuai)\n"
+                + (res.get("note") or ""))
     if tool == "rag":
         if not res.get("available"):
-            return ("(tidak ada dokumen yang ditemukan; akui keterbatasan, "
-                    "jangan mengarang)")
+            return ("(dokumen pendukung tidak tersedia atau hasil tidak cukup "
+                    "relevan; akui keterbatasan, jangan mengarang)\n"
+                    f"Status retrieval: {res.get('status')}. "
+                    f"Catatan: {res.get('note') or '-'}")
         out = _rag_block(res)
         if tool_out.get("note"):
             out += "\n\nCatatan: " + tool_out["note"]
@@ -453,9 +518,6 @@ def _build_context(tool_out: dict, slots: dict | None = None) -> str:
 
 def _collect_sources(tool_out: dict) -> list[dict]:
     tool = tool_out.get("tool")
-    if tool == "crowding":
-        ragres = (tool_out.get("result") or {}).get("rag") or {}
-        return tools.rag_sources(ragres)
     if tool != "rag":
         return []
     return tools.rag_sources(tool_out["result"])
@@ -599,66 +661,58 @@ def fallback_reply(intent: str, slots: dict, tool_out: dict) -> str:
         lines.append("Catatan: " + res.get("note", ""))
         return "\n".join(lines)
     if tool == "crowding":
-        hw = res.get("headways") or {}
         ests = [e for e in (res.get("estimates") or []) if e.get("available")]
         dails = [d for d in (res.get("daily") or []) if d.get("available")]
         if ests:
-            lines = ["Estimasi kepadatan (model crowding-v1; label proksi — "
-                     "pola dari jendela sibuk & rasio akhir pekan "
-                     "terdokumentasi, bukan pengukuran):"]
+            lines = []
             for e in ests:
                 scope = (e.get("scope") or {}).get("name") or "Jabodetabek"
-                srcs = [b["source_id"] for b in e.get("basis", [])
-                        if b.get("source_id")]
-                s = f" [{srcs[0]}]" if srcs else ""
-                lines.append(f"- {scope}, {e['day_type']} {e['time']}: "
-                             f"{e['category'].upper()} (skor {e['score']}, "
-                             f"kepercayaan {e['confidence']}){s}")
+                day = _DAY_LABELS.get(e.get("day_type"),
+                                      e.get("day_type") or "")
+                lines.append(
+                    f"Pada pukul {_public_time(e['time'])} {day}, "
+                    f"{scope} diperkirakan {e['category']}."
+                )
         elif dails:
-            lines = ["Pola harian kepadatan (model crowding-v1; label "
-                     "proksi, bukan pengukuran):"]
+            lines = ["Perkiraan waktu perjalanan berdasarkan pola layanan:"]
             for d in dails:
                 scope = (d.get("scope") or {}).get("name") or "Jabodetabek"
+                day = _DAY_LABELS.get(d.get("day_type"),
+                                      d.get("day_type") or "")
                 rg = d.get("ranges") or {}
-                bits = [f"{cat}: {', '.join(rg.get(cat, [])) or '-'}"
-                        for cat in ("padat", "sedang", "longgar")]
-                lines.append(f"- {scope} ({d.get('day_type')}): "
-                             + "; ".join(bits))
+                lines.append(f"{scope} pada {day}:")
+                for category in ("padat", "sedang", "longgar"):
+                    spans = [_public_time(v)
+                             for v in rg.get(category, [])]
+                    if spans:
+                        lines.append(
+                            f"- {category.capitalize()}: {', '.join(spans)}."
+                        )
+                longgar = [_public_time(v) for v in rg.get("longgar", [])]
+                if longgar:
+                    lines.append(
+                        "Pilihan waktu yang cenderung lebih nyaman berada "
+                        f"dalam rentang longgar tersebut: {', '.join(longgar)}."
+                    )
         else:
-            lines = ["Indikator kepadatan (label proksi — data penumpang "
-                     "per jam TIDAK tersedia):"]
-        for ln in hw.get("lines", []):
-            peak = ln["periods"].get("peak") or {}
-            if not peak:
-                continue
-            w = (f", jendela sibuk {peak['peak_windows']}"
-                 if peak.get("peak_windows") else "")
-            src = f" [{ln['sources'][0]}]" if ln.get("sources") else ""
-            lines.append(f"- {ln['line']}: headway puncak "
-                         f"±{peak['headway_min']} mnt{w}{src}")
-        if hw.get("brt"):
-            b = hw["brt"]
-            lines.append(f"- TransJakarta: jadwal GTFS "
-                         f"{b['earliest_departure']}–"
-                         f"{b['latest_departure']} (koridor berbeda-beda) "
-                         f"[{b['source_id']}]")
-        lines.append("Pola umum: periode jendela sibuk cenderung lebih "
-                     "padat; di luar jendela cenderung lebih longgar "
-                     "(proksi, bukan pengukuran).")
-        ragres = res.get("rag") or {}
-        if ragres.get("available"):
-            r = ragres["results"][0]
-            c = r["citation"]
-            lines.append(f"[1] {c.get('title')} ({c.get('source_id')}): "
-                         f"«{' '.join(r['text'].split())[:300]}»")
-        if tool_out.get("note"):
-            lines.append(tool_out["note"])
+            lines = ["Perkiraan kepadatan belum tersedia untuk moda atau "
+                     "waktu tersebut."]
+        lines.append(
+            "Catatan: ini merupakan perkiraan pola, bukan pengukuran "
+            "kepadatan langsung. Data penumpang per jam dan per stasiun "
+            "belum tersedia."
+        )
         return "\n".join(lines)
     if tool == "rag":
         if not res.get("available"):
-            return ("Saya tidak menemukan dokumen pendukung untuk pertanyaan "
-                    "itu di korpus kami saat ini. Coba parafrase dengan kata "
-                    "kunci lain (mis. nama dokumen, moda, atau tahun).")
+            if res.get("status") == "no_coverage":
+                return ("Korpus dokumen proyek belum memiliki sumber yang "
+                        "sesuai untuk moda atau jenis informasi tersebut. "
+                        "Saya tidak akan menggunakan dokumen moda lain "
+                        "sebagai pengganti.")
+            return ("Saya tidak menemukan bagian dokumen yang cukup relevan "
+                    "untuk menjawab pertanyaan itu, sehingga saya tidak akan "
+                    "menyimpulkan jawabannya dari sumber yang meragukan.")
         lines = []
         for i, r in enumerate(res["results"][:2], start=1):
             c = r["citation"]
@@ -668,12 +722,89 @@ def fallback_reply(intent: str, slots: dict, tool_out: dict) -> str:
         lines.append("Sumber lengkap terlampir di bawah jawaban.")
         return "\n".join(lines) + ("\n\n" + tool_out["note"]
                                    if tool_out.get("note") else "")
+    if tool == "unsupported":
+        return (res.get("note") or
+                "Data yang diperlukan belum tersedia di basis data proyek.")
     if intent == "other":
         return ("Halo! Saya asisten JPTI — membantu soal rute, jumlah "
                 "penumpang, tarif, jadwal, dan dokumen resmi transportasi "
                 "Jabodetabek (MRT, KRL, LRT Jakarta, LRT Jabodebek, "
                 "TransJakarta). Mau tanya apa?")
     return "Pertanyaan itu belum bisa saya jawab dengan data yang ada."
+
+
+_FLEX_TIME_RE = re.compile(
+    r"(?<!\d)([01]?\d|2[0-3])(?:\s*[:.]\s*|[\s\u00a0\u202f]+)([0-5]\d)(?!\d)"
+)
+_INTERNAL_CROWDING_RE = re.compile(
+    r"crowding[\s\-\u2011\u2012\u2013\u2014]*v?1|\bdata_label\b|"
+    r"\bweek(?:day|end)\b|\bproksi\b",
+    re.IGNORECASE,
+)
+
+
+def _polish_reply(reply: str, intent: str, slots: dict,
+                  tool_out: dict) -> str:
+    """Rapikan bahasa keluaran tanpa mengubah fakta dari tool.
+
+    Crowding mendapat penjagaan tambahan karena jawaban pengguna harus
+    praktis, sedangkan nama model/field dan format waktu adalah metadata.
+    Jika istilah internal masih lolos, gunakan formatter deterministik yang
+    mengambil kategori dan rentang langsung dari hasil tool.
+    """
+    if intent != "crowding":
+        return reply
+
+    text = re.sub(
+        r"\bmodel\s+crowding[\s\-\u2011\u2012\u2013\u2014]*v?1\b",
+        "perkiraan pola kepadatan", reply, flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\bcrowding[\s\-\u2011\u2012\u2013\u2014]*v?1\b",
+        "perkiraan pola kepadatan", text, flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bweekend\b", "akhir pekan", text,
+                  flags=re.IGNORECASE)
+    text = re.sub(r"\bweekday\b", "hari kerja", text,
+                  flags=re.IGNORECASE)
+    text = re.sub(
+        r"\bdata_label\s*[:=]?\s*proksi\b|\blabel\s+proksi\b",
+        "perkiraan, bukan pengukuran langsung", text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bproksi\b", "perkiraan pola", text,
+                  flags=re.IGNORECASE)
+    # Skor mentah adalah metadata diagnostik, bukan informasi yang membantu
+    # penumpang memilih waktu. Confidence tetap tersedia di hasil tool/API.
+    text = re.sub(
+        r"\s*\((?:skor|score)\s+[\d.,]+(?:\s*[,;]\s*"
+        r"(?:tingkat\s+)?kepercayaan\s+[^)]+)?\)",
+        "", text, flags=re.IGNORECASE,
+    )
+    text = _FLEX_TIME_RE.sub(
+        lambda m: f"{int(m.group(1)):02d}.{m.group(2)}", text,
+    )
+    text = re.sub(
+        r"(?<=\d)[\-\u2011\u2012\u2013\u2014](?=\d{2}\.)", "–", text,
+    )
+    text = re.sub(r"[ \t]+([,.;:!?])", r"\1", text)
+    text = re.sub(r"[ \t]{2,}", " ", text).strip()
+
+    if _INTERNAL_CROWDING_RE.search(text):
+        return fallback_reply(intent, slots, tool_out)
+    return text
+
+
+def _rag_citations_valid(reply: str, tool_out: dict) -> bool:
+    """Pastikan jawaban RAG tidak mengklaim sumber yang tidak tersedia."""
+    if tool_out.get("tool") != "rag":
+        return True
+    result = tool_out.get("result") or {}
+    if not result.get("available"):
+        return True
+    source_count = len(result.get("results") or [])
+    cited = [int(value) for value in re.findall(r"\[(\d+)\]", reply)]
+    return bool(cited) and all(1 <= value <= source_count for value in cited)
 
 
 # ---------- orkestrasi utama ----------
@@ -805,6 +936,11 @@ def handle_chat(message: str, session_id: str | None, net,
                 reply = fallback_reply(intent, slots, tool_out)
         else:
             reply = fallback_reply(intent, slots, tool_out)
+
+        reply = _polish_reply(reply, intent, slots, tool_out)
+        if not _rag_citations_valid(reply, tool_out):
+            reply = fallback_reply(intent, slots, tool_out)
+            llm_used = False
 
         sources = _collect_sources(tool_out)
         payload = {

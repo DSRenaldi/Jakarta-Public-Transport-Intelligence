@@ -60,6 +60,12 @@ Body:
 {"query": "tarif integrasi", "top_k": 5, "operator": null,
  "mode": null, "doc_type": null, "label": null}
 ```
+- Respons membawa `status`: `ok`, `no_coverage`, atau `no_relevant_result`.
+  Jika filter tidak diberikan, retriever menginferensikan operator/moda dan
+  jenis dokumen yang disebut eksplisit dalam pertanyaan. LRT Jakarta dan LRT
+  Jabodebek selalu dipisahkan.
+- Retriever menerapkan ambang relevansi passage. Korpus yang tidak memiliki
+  sumber sesuai akan menghasilkan nol hasil, bukan potongan dokumen terdekat.
 - Filter opsional: `operator` (MRT_JAKARTA, KRL_COMMUTER, LRT_JAKARTA, …),
   `mode` (MRT/KRL/LRT/BRT), `doc_type`, `label` (aktual/historis/prediksi/proksi).
 - Setiap hasil membawa `citation` (judul, seksi, halaman, URL sumber,

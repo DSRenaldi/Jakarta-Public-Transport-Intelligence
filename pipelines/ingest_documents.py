@@ -32,13 +32,24 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+PIPELINE_VERSION = "rag-ingest-v2"
 MAX_CHUNK_CHARS = 1800          # ~450 token
+CHUNK_OVERLAP_CHARS = 220       # konteks pada batas chunk
 MIN_DOC_CHARS = 5000            # di bawah ini = PDF kemungkinan tanpa text layer
 PARA_SOFT_LIMIT = 1200          # batas paragraf saat PDF tanpa baris kosong
 
 RE_PAGE_NUM = re.compile(r"^\s*(?:-?\s*)\d{1,4}\s*(?:-?\s*)$")
 RE_NUM_HEADING = re.compile(r"^(\d{1,2}(?:\.\d{1,2}){0,3})\s+([A-ZÁÉÍÓÚa-z]{2,80})$")
 RE_CAPS_HEADING = re.compile(r"^[A-Z][A-Z0-9 &\-–/]{2,58}$")
+
+HEADING_HINTS = {
+    "laporan", "report", "ikhtisar", "highlight", "profil", "profile",
+    "kinerja", "performance", "operasi", "operation", "layanan", "service",
+    "keuangan", "financial", "tata kelola", "governance", "risiko", "risk",
+    "keselamatan", "safety", "keberlanjutan", "sustainability", "segmen",
+    "segment", "pendahuluan", "introduction", "manajemen", "management",
+    "sarana", "prasarana", "infrastruktur", "infrastructure",
+}
 
 ID_WORDS = {"yang", "dan", "adalah", "pada", "untuk", "dengan", "dari", "dalam",
             "ini", "itu", "kami", "perusahaan", "tersebut", "dapat", "juga", "bahwa"}
@@ -183,7 +194,9 @@ def is_heading(line: str) -> bool:
     if not l or len(l) > 80 or l.endswith((".", ",", ":", ";")):
         return False
     if RE_CAPS_HEADING.match(l):
-        return True
+        lowered = l.casefold()
+        return (not any(ch.isdigit() for ch in l)
+                and any(hint in lowered for hint in HEADING_HINTS))
     m = RE_NUM_HEADING.match(l)
     return bool(m) and len(l) <= 80
 
@@ -224,25 +237,33 @@ def chunk_document(pages: list[str]) -> list[dict]:
     buf_text = ""
     buf_pages: list[int] = []
 
-    def flush():
+    def flush(keep_overlap: bool = False):
         nonlocal buf_text, buf_pages
         t = buf_text.strip()
         if t:
             chunks.append(dict(section_title=section, text=t,
                                page_number=buf_pages[0], page_end=buf_pages[-1]))
-        buf_text, buf_pages = "", []
+        if keep_overlap and t:
+            tail = t[-CHUNK_OVERLAP_CHARS:]
+            first_space = tail.find(" ")
+            if first_space >= 0:
+                tail = tail[first_space + 1:]
+            buf_text = tail.strip()
+            buf_pages = [buf_pages[-1]] if buf_pages else []
+        else:
+            buf_text, buf_pages = "", []
 
     for pno, page in enumerate(pages, start=1):
         for para in split_paragraphs(page):
             if para.startswith("@@HEADING@@ "):
-                flush()
+                flush(keep_overlap=False)
                 section = para[len("@@HEADING@@ "):].strip()
                 continue
             if len(buf_text) + len(para) + 1 > MAX_CHUNK_CHARS:
-                flush()
+                flush(keep_overlap=True)
             buf_text = (buf_text + "\n" + para) if buf_text else para
             buf_pages.append(pno)
-    flush()
+    flush(keep_overlap=False)
 
     result = []
     for i, c in enumerate(chunks):
@@ -278,6 +299,13 @@ def existing_checksum(cur, doc_id: str) -> str | None:
 def save_document(conn, cur, doc: dict, path: Path, checksum: str,
                   language: str, page_count: int, chunks: list[dict]) -> None:
     model_dim = None
+    extra = {
+        **doc.get("extra", {}),
+        "ingest_pipeline_version": PIPELINE_VERSION,
+        "embedding_model": MODEL_NAME,
+        "max_chunk_chars": MAX_CHUNK_CHARS,
+        "chunk_overlap_chars": CHUNK_OVERLAP_CHARS,
+    }
     cur.execute("""
         INSERT INTO documents(
             document_id, operator_id, mode_id, document_type, title, source_url,
@@ -286,6 +314,19 @@ def save_document(conn, cur, doc: dict, path: Path, checksum: str,
             file_size_bytes, page_count, extra, notes
         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now(),%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (document_id) DO UPDATE SET
+            operator_id = EXCLUDED.operator_id,
+            mode_id = EXCLUDED.mode_id,
+            document_type = EXCLUDED.document_type,
+            title = EXCLUDED.title,
+            source_url = EXCLUDED.source_url,
+            source_id = EXCLUDED.source_id,
+            published_at = EXCLUDED.published_at,
+            effective_from = EXCLUDED.effective_from,
+            effective_until = EXCLUDED.effective_until,
+            data_version = EXCLUDED.data_version,
+            language = EXCLUDED.language,
+            fresh_label = EXCLUDED.fresh_label,
+            file_path = EXCLUDED.file_path,
             checksum_sha256 = EXCLUDED.checksum_sha256,
             page_count = EXCLUDED.page_count,
             file_size_bytes = EXCLUDED.file_size_bytes,
@@ -296,7 +337,7 @@ def save_document(conn, cur, doc: dict, path: Path, checksum: str,
         doc["title"], doc["source_url"], doc["source_id"], doc["published_at"],
         doc["effective_from"], doc["effective_until"], doc["data_version"],
         language, doc["fresh_label"], doc["rel_path"], checksum,
-        path.stat().st_size, page_count, json.dumps(doc.get("extra", {}), ensure_ascii=False),
+        path.stat().st_size, page_count, json.dumps(extra, ensure_ascii=False),
         None,
     ))
     cur.execute("DELETE FROM document_chunks WHERE document_id = %s", (doc["document_id"],))
@@ -350,7 +391,7 @@ def ingest_one(doc: dict, force: bool = False) -> bool:
         return True
     if force and prev == checksum:
         print(f"[{doc['document_id']}] --force: checksum sama, proses ulang (pipeline berubah)")
-    if prev:
+    if prev and prev != checksum:
         print(f"[{doc['document_id']}] checksum BERUBAH ({prev[:12]}... → {checksum[:12]}...) — ganti")
     conn.close()  # sumber sudah commit; koneksi baru dibuka lagi saat save
 
@@ -378,8 +419,10 @@ def ingest_one(doc: dict, force: bool = False) -> bool:
     print(f"[{doc['document_id']}] embedding ({MODEL_NAME})...")
     from fastembed import TextEmbedding
     model = TextEmbedding(MODEL_NAME)
-    texts = [(c["section_title"] + "\n" if c["section_title"] else "") + c["text"]
-             for c in chunks]
+    prefix = f"{doc['title']}\n{doc['operator_id']} {doc['mode_id']}\n"
+    texts = [prefix
+             + (c["section_title"] + "\n" if c["section_title"] else "")
+             + c["text"] for c in chunks]
     t0 = time.time()
     vecs = model.embed(texts, batch_size=32)
     for c, v in zip(chunks, vecs):

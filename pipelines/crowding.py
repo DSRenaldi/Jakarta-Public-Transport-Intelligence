@@ -375,7 +375,10 @@ def _time_spans(times: list[str]) -> list[str]:
         # satu slot 'HH:MM' mencakup HH:MM–(HH:MM+29); tampilkan sampai
         # batas akhir slot (+30 mnt) agar rentangnya eksplisit
         if e == "23:30":
-            out.append("23:30-23:59")
+            # Pertahankan awal rentang. Sebelumnya awal selalu ditulis
+            # sebagai 23:30 sehingga rentang berurutan seperti
+            # 19:00..23:30 keliru diringkas menjadi 23:30-23:59.
+            out.append(f"{s}-23:59")
         else:
             end_dt = _shift(dtime.fromisoformat(e), 30)
             out.append(f"{s}-{end_dt:%H:%M}")

@@ -11,7 +11,7 @@ from db import connect
 import crowding as _crowding
 from route_query import match_stops
 from routing import Network
-from rag_query import rag_search
+from rag_query import rag_retrieve
 
 
 # ---------- helper serialisasi (mirror api/app.py) ----------
@@ -198,20 +198,31 @@ def compare_modes(rows: list[dict], period: str | None = None) -> dict:
 
 # ---------- tool RAG ----------
 
-def rag(query: str, top_k: int = 4, mode: str | None = None) -> dict:
+def rag(query: str, top_k: int = 4, mode: str | None = None,
+        operator: str | None = None, doc_type: str | None = None,
+        fresh_label: str | None = None) -> dict:
     try:
-        results = rag_search(query, top_k=top_k, mode=mode)
+        payload = rag_retrieve(
+            query, top_k=top_k, mode=mode, operator=operator,
+            doc_type=doc_type, fresh_label=fresh_label,
+        )
     except Exception as e:  # noqa: BLE001
         return {"available": False, "note": f"retrieval gagal: {e}",
-                "results": []}
+                "status": "error", "results": []}
     return {
-        "available": bool(results),
+        "available": payload["status"] == "ok",
+        "status": payload["status"],
+        "note": payload.get("note"),
         "query": query,
+        "filters": payload.get("filters", {}),
+        "retriever_version": payload.get("retriever_version"),
         "results": [{
             "document_id": r["document_id"],
+            "chunk_id": r["chunk_id"],
+            "score": r["score"],
             "text": r["text"],
             "citation": r["citation"],
-        } for r in results],
+        } for r in payload["results"]],
     }
 
 
@@ -263,6 +274,8 @@ def rag_sources(rag_result: dict) -> list[dict]:
             "url": c.get("source_url"),
             "published_at": c.get("published_at"),
             "fresh_label": c.get("fresh_label"),
+            "chunk_id": r.get("chunk_id"),
+            "relevance": r.get("score"),
         })
     return srcs
 

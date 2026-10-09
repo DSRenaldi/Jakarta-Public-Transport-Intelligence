@@ -1,86 +1,121 @@
 # -*- coding: utf-8 -*-
-"""Fase 3 RAG — evaluasi kualitas retrieval (hit@k & MRR).
+"""Evaluasi passage-level dan kemampuan abstain retriever RAG.
 
-Soal faktual: setiap soal punya dokumen yang diharapkan menaungi jawabannya.
-Metrik:
-  - hit@k (k = 1, 3, 5): dokumen harapan muncul di posisi <= k
-  - MRR: reciprocal rank hasil benar pertama
-
-Jalankan:  .venv\\Scripts\\python pipelines\\eval_retrieval.py
-Hasil juga disimpan ke .work/eval_retrieval_results.json
+Berbeda dari evaluasi lama, sebuah hasil tidak dianggap benar hanya karena
+berasal dari dokumen yang tepat. Passage harus memuat bukti yang sudah diberi
+label. Pertanyaan tanpa cakupan juga wajib ditolak.
 """
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rag_query import rag_search  # noqa: E402
+from rag_query import rag_retrieve  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# (soal, document_id yang diharapkan, catatan)
-QUERIES = [
-    ("jumlah penumpang LRT Jakarta tahun 2022", "LRTJ-AR-2022", "ridership moda"),
-    ("total pendapatan LRT Jakarta 2022", "LRTJ-AR-2022", "keuangan"),
-    ("jumlah penumpang KRL Jabodetabek 2025", "KCI-AR-2025", "ridership moda"),
-    ("pendapatan KAI Commuter tahun 2025", "KCI-AR-2025", "keuangan"),
-    ("efisiensi biaya operasi KAI Commuter 2025", "KCI-AR-2025", "operasional"),
-    ("jumlah kereta/armada LRT Jakarta", "LRTJ-AR-2022", "sarana"),
-    ("kebijakan tarif KRL Jabodetabek", "KCI-AR-2025", "kebijakan"),
-    ("revenue KAI Commuter 2025", "KCI-AR-2025", "bahasa Inggris"),
-    ("jumlah stasiun LRT Jakarta", "LRTJ-AR-2022", "prasarana"),
-    ("keselamatan dan kecelakaan LRT Jakarta 2022", "LRTJ-AR-2022", "K3"),
+POSITIVE_CASES = [
+    {
+        "query": "jumlah penumpang LRT Jakarta tahun 2022",
+        "evidence": ["685.249", "penumpang"],
+    },
+    {
+        "query": "rincian penumpang LRT Jakarta per bulan pada 2022",
+        "evidence": ["januari", "desember", "685.249"],
+    },
+    {
+        "query": "jumlah penumpang KRL atau KAI Commuter tahun 2025",
+        "evidence": ["400.997.610", "volume penumpang"],
+    },
+    {
+        "query": "pendapatan KAI Commuter pada tahun 2025",
+        "evidence": ["rp3,92 triliun", "pendapatan"],
+    },
+    {
+        "query": "berapa jumlah stasiun LRT Jakarta pada 2022",
+        "evidence": ["jumlah stasiun lrt", "6 stasiun"],
+    },
+    {
+        "query": "kapan tarif integrasi JakLingko diresmikan menurut laporan LRT Jakarta 2022",
+        "evidence": ["7 oktober 2022", "tarif integrasi"],
+    },
+    {
+        "query": "apa saja isi laporan tahunan KCI 2025",
+        "evidence": ["profil perusahaan",
+                     "analisis dan pembahasan manajemen"],
+    },
+]
+
+NEGATIVE_CASES = [
+    "apa kebijakan barang bawaan MRT Jakarta",
+    "bagaimana fasilitas aksesibilitas Stasiun Dukuh Atas",
+    "bagaimana status layanan LRT Jabodebek",
+    "apa kebijakan terbaru TransJakarta",
+    "resep nasi goreng sederhana",
 ]
 
 
-def main():
-    print(f"Evaluasi retrieval — {len(QUERIES)} soal\n")
+def _evidence_rank(results: list[dict], evidence: list[str]) -> int | None:
+    wanted = [" ".join(value.casefold().split()) for value in evidence]
+    for rank, result in enumerate(results, start=1):
+        text = " ".join(result["text"].casefold().split())
+        if all(value in text for value in wanted):
+            return rank
+    return None
+
+
+def main() -> None:
     rows = []
-    hits = {1: 0, 3: 0, 5: 0}
-    rr_sum = 0.0
+    positive_hits = 0
+    reciprocal_sum = 0.0
+    print("Evaluasi retrieval passage-level\n")
+    for case in POSITIVE_CASES:
+        payload = rag_retrieve(case["query"], top_k=5)
+        rank = _evidence_rank(payload["results"], case["evidence"])
+        passed = rank is not None
+        positive_hits += int(passed)
+        reciprocal_sum += 1.0 / rank if rank else 0.0
+        rows.append({"type": "positive", **case, "status": payload["status"],
+                     "evidence_rank": rank, "passed": passed})
+        print(f"[{'PASS' if passed else 'FAIL'}] {case['query']} "
+              f"-> evidence rank {rank}")
 
-    for i, (q, expected, note) in enumerate(QUERIES, 1):
-        results = rag_search(q, top_k=5)
-        rank = None
-        for j, r in enumerate(results, 1):
-            if r["document_id"] == expected:
-                rank = j
-                break
-        for k in (1, 3, 5):
-            if rank is not None and rank <= k:
-                hits[k] += 1
-        if rank is not None:
-            rr_sum += 1.0 / rank
-        top1 = results[0] if results else None
-        rows.append(dict(
-            no=i, query=q, expected=expected, note=note,
-            rank=rank,
-            top1=(top1["document_id"] + " :: " + (top1["citation"]["section"] or "")
-                  if top1 else None),
-        ))
-        status = f"OK   pos {rank}" if rank else "GAGAL"
-        preview = " ".join(top1["text"].split())[:120] if top1 else ""
-        section = top1["citation"]["section"] or "-" if top1 else ""
-        print(f"[{status:>7}] {q}  -> harap {expected}")
-        if top1:
-            print(f"          top1: {top1['document_id']} | {section} | {preview}")
+    negative_passes = 0
+    print("\nEvaluasi abstention\n")
+    for query in NEGATIVE_CASES:
+        payload = rag_retrieve(query, top_k=5)
+        passed = not payload["results"] and payload["status"] in {
+            "no_coverage", "no_relevant_result",
+        }
+        negative_passes += int(passed)
+        rows.append({"type": "negative", "query": query,
+                     "status": payload["status"], "result_count":
+                     len(payload["results"]), "passed": passed})
+        print(f"[{'PASS' if passed else 'FAIL'}] {query} "
+              f"-> {payload['status']} ({len(payload['results'])} hasil)")
 
-    n = len(QUERIES)
-    mrr = rr_sum / n
+    n_pos = len(POSITIVE_CASES)
+    n_neg = len(NEGATIVE_CASES)
+    metrics = {
+        "passage_hit_at_5": round(positive_hits / n_pos, 3),
+        "passage_mrr": round(reciprocal_sum / n_pos, 3),
+        "abstention_accuracy": round(negative_passes / n_neg, 3),
+        "false_acceptance_rate": round((n_neg - negative_passes) / n_neg, 3),
+    }
     print("\n===== METRIK =====")
-    for k in (1, 3, 5):
-        print(f"hit@{k}: {hits[k]}/{n} = {hits[k]/n:.0%}")
-    print(f"MRR:   {mrr:.3f}")
+    for key, value in metrics.items():
+        print(f"{key}: {value:.3f}")
 
-    out = ROOT / ".work" / "eval_retrieval_results.json"
-    out.write_text(json.dumps(
-        dict(metriks=dict(hit_at_1=round(hits[1]/n, 3), hit_at_3=round(hits[3]/n, 3),
-                          hit_at_5=round(hits[5]/n, 3), mrr=round(mrr, 3)),
-             hasil=rows),
-        ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nDetail: {out}")
-    sys.exit(0)
+    output = ROOT / ".work" / "eval_retrieval_results.json"
+    output.parent.mkdir(exist_ok=True)
+    output.write_text(json.dumps({"metrics": metrics, "results": rows},
+                                 ensure_ascii=False, indent=2),
+                      encoding="utf-8")
+    passed = positive_hits == n_pos and negative_passes == n_neg
+    print(f"\nQuality gate: {'PASS' if passed else 'FAIL'}")
+    print(f"Detail: {output}")
+    sys.exit(0 if passed else 1)
 
 
 if __name__ == "__main__":
