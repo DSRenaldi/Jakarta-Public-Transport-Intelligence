@@ -1,13 +1,15 @@
 // Konstanta & helper bersama (dipakai Planner, Dashboard, dst.)
 
+// Warna garis moda — "bahasa peta lin" (dipakai legend, badge, chart, map).
+// KRL = hijau mengikuti brand KAI Commuter; BRT = kuning TransJakarta.
 export const MODE_COLORS = {
-  MRT: '#1E88E5',
-  KRL: '#0D47A1',
-  LRT: '#00897B',
-  BRT: '#F9A825',
+  MRT: '#1B5FD9',
+  KRL: '#0B7A4B',
+  LRT: '#0E8A80',
+  BRT: '#F2A900',
 }
 
-export const WALK_COLOR = '#7d8590'
+export const WALK_COLOR = '#77817a'
 
 // Nama tampilan stop: nama berhak penamaan (display) bila ada, selain itu
 // nama kanonik. Cocok dgn label peta resmi (mis. "Senayan Mastercard").

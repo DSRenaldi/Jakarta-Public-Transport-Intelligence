@@ -115,6 +115,8 @@ export default function Dashboard() {
       connectNulls: true,
     }))
     return {
+      color: [MODE_COLORS[mode]],
+      textStyle: { fontFamily: '"Public Sans", "Segoe UI", sans-serif' },
       tooltip: { trigger: 'axis' },
       legend: { bottom: 0, textStyle: { fontSize: 11 } },
       grid: { left: 62, right: 14, top: 18, bottom: 34 },

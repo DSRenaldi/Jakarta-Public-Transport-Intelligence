@@ -60,7 +60,7 @@ export default function MapsPage() {
           Asset peta dari situs operator (arsip proyek, akses 2026-09-29/30). Bedakan moda:
           MRT Jakarta ≠ LRT Jakarta ≠ LRT Jabodebek ≠ KRL ≠ TransJakarta.
         </p>
-        <div className="tabs">
+        <div className="tabs tabs-card">
           {TABS.map((x) => (
             <button key={x.id} className={tab === x.id ? 'tab active' : 'tab'} onClick={() => setTab(x.id)}>
               {x.label}

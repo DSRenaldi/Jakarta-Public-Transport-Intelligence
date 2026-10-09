@@ -119,8 +119,8 @@ function StopInput({ label, stop, onPick, mode, onModeChange, placeholder }) {
 }
 
 function badgeStyle(mode) {
-  const c = MODE_COLORS[mode] || '#5c6672'
-  return { background: `${c}1a`, color: c }
+  const c = MODE_COLORS[mode] || '#5f6660'
+  return { background: `${c}1f`, color: c }
 }
 
 // ---------- peta rute ----------
@@ -156,7 +156,7 @@ function RouteMap({ result }) {
             key={i}
             positions={[[s.from.lat, s.from.lon], [s.to.lat, s.to.lon]]}
             pathOptions={{
-              color: s.type === 'walk' ? WALK_COLOR : (MODE_COLORS[s.mode] || '#333'),
+              color: s.type === 'walk' ? WALK_COLOR : (MODE_COLORS[s.mode] || '#191c21'),
               weight: s.type === 'walk' ? 3 : 5,
               dashArray: s.type === 'walk' ? '6 8' : undefined,
               opacity: 0.9,
@@ -166,14 +166,14 @@ function RouteMap({ result }) {
         <CircleMarker
           center={[result.origin.lat, result.origin.lon]}
           radius={9}
-          pathOptions={{ color: '#0f62fe', fillColor: '#0f62fe', fillOpacity: 1 }}
+          pathOptions={{ color: '#1B5FD9', fillColor: '#1B5FD9', fillOpacity: 1 }}
         >
           <Tooltip permanent direction="top" offset={[0, -10]}>A · {dispName(result.origin)}</Tooltip>
         </CircleMarker>
         <CircleMarker
           center={[result.dest.lat, result.dest.lon]}
           radius={9}
-          pathOptions={{ color: '#da1e28', fillColor: '#da1e28', fillOpacity: 1 }}
+          pathOptions={{ color: '#c6362c', fillColor: '#c6362c', fillOpacity: 1 }}
         >
           <Tooltip permanent direction="top" offset={[0, -10]}>B · {dispName(result.dest)}</Tooltip>
         </CircleMarker>
@@ -301,7 +301,7 @@ export default function Planner() {
                 <li key={i} className="seg">
                   <span
                     className="seg-dot"
-                    style={{ background: s.type === 'walk' ? WALK_COLOR : (MODE_COLORS[s.mode] || '#333') }}
+                    style={{ background: s.type === 'walk' ? WALK_COLOR : (MODE_COLORS[s.mode] || '#191c21') }}
                   />
                   {s.type === 'walk' ? (
                     <div className="seg-body">
