@@ -36,6 +36,7 @@ from rag_query import rag_retrieve  # noqa: E402
 from route_query import match_stops  # noqa: E402
 from routing import Network  # noqa: E402
 from chatbot import chat as chatbot_chat  # noqa: E402
+from chatbot import tools as chatbot_tools  # noqa: E402
 import crowding as crowding_model  # noqa: E402
 
 APP_VERSION = "0.1.0"
@@ -134,36 +135,6 @@ def _stop_brief(net: Network, sid: str) -> dict:
     return {"stop_id": s.stop_id, "name": s.name, "display": disp,
             "aliases": s.aliases, "mode": s.mode,
             "lat": s.lat, "lon": s.lon}
-
-
-def _line_info(net: Network, line_id: str | None) -> tuple[str, str | None]:
-    """(nama lintas, kode koridor).
-
-    display_name BRT berbentuk "KODE — nama" (kode koridor GTFS route_short_name,
-    mis. "13A", "B01", "TJ2"); moda lain display = canonical → koridor None.
-    """
-    name = net.line_name.get(line_id, line_id or "?")
-    disp = net.line_display.get(line_id)
-    corridor = None
-    if disp and disp != name:
-        prefix, sep, _rest = disp.partition(" — ")
-        if sep and prefix.strip():
-            corridor = prefix.strip()
-    return name, corridor
-
-
-def _serialize_segment(net: Network, seg: dict) -> dict:
-    if seg["type"] == "transfer":
-        return {"type": "walk", "from": _stop_brief(net, seg["from"]),
-                "to": _stop_brief(net, seg["to"]), "walk_sec": seg["walk_sec"]}
-    line_id = seg.get("line")
-    line, corridor = _line_info(net, line_id)
-    return {"type": "ride", "mode": seg["mode"], "line_id": line_id,
-            "line": line, "corridor": corridor,
-            "from": _stop_brief(net, seg["from"]),
-            "to": _stop_brief(net, seg["to"]),
-            "travel_sec": seg["travel_sec"], "wait_sec": seg["wait_sec"],
-            "fare": seg.get("fare", 0)}
 
 
 # ---------- models ----------
@@ -294,16 +265,9 @@ def route(req: RouteRequest):
                 "dest": _stop_brief(net, dest)}
     dep = _parse_dep_time(req.dep_time)
     crowd_segs = crowding_model.annotate_route_segments(res.segments, dep)
-    return {
-        "status": "ok",
-        "preference": req.prefer,
-        "origin": _stop_brief(net, origin),
-        "dest": _stop_brief(net, dest),
-        "time_sec": res.time_sec,
-        "time_fmt": Network.fmt_time(res.time_sec),
-        "fare": res.fare,
-        "transfers": res.transfers,
-        "segments": [_serialize_segment(net, s) for s in res.segments],
+    payload = chatbot_tools.serialize_route_result(
+        net, res, req.prefer, origin, dest)
+    payload.update({
         "crowding": {
             "model_version": crowding_model.MODEL_VERSION,
             "data_label": "proksi",
@@ -314,7 +278,8 @@ def route(req: RouteRequest):
         },
         "disclaimer": DISCLAIMER,
         "computed_at": datetime.now().isoformat(timespec="seconds"),
-    }
+    })
+    return payload
 
 
 def _parse_dep_time(s: str | None):
@@ -425,6 +390,13 @@ def chat_status():
 # MVP tanpa akun: user_id = UUID opaque buatan klien; setiap query
 # wajib difilter user_id (§35.11). Penghapusan idempoten + soft-delete
 # dgn audit memory_events.
+
+@app.delete("/api/chat/session")
+def clear_chat_session(session_id: str = Query(min_length=1, max_length=64)):
+    """Hapus history dan context percakapan aktif secara idempoten."""
+    chatbot_chat.STORE.reset(session_id)
+    return {"status": "cleared", "session_id": session_id}
+
 
 from chatbot import memory as mem_mod  # noqa: E402
 

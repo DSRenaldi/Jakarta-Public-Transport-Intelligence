@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { askChat, getChatStatus, getMemory, deleteMemory, deleteAllMemory } from '../api.js'
+import {
+  askChat,
+  clearChatSession,
+  deleteAllMemory,
+  deleteMemory,
+  getChatStatus,
+  getMemory,
+} from '../api.js'
 
 const WELCOME = (
   'Halo! Saya asisten JPTI. Tanya saya soal rute antar-stasiun, jumlah ' +
@@ -16,6 +23,10 @@ const SUGGESTIONS = [
   'Jam operasional LRT Jakarta?',
 ]
 
+const CHAT_HISTORY_KEY = 'jpti_chat_messages_v1'
+const INITIAL_MESSAGES = [{ role: 'bot', text: WELCOME }]
+const MAX_SAVED_MESSAGES = 100
+
 const INTENT_LABEL = {
   route_planning: 'rute',
   ridership_statistics: 'penumpang',
@@ -28,16 +39,34 @@ const INTENT_LABEL = {
   other: 'umum',
 }
 
+function createOpaqueId(prefix) {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
 function getSessionId() {
   let id = null
   try { id = localStorage.getItem('jpti_chat_sid') } catch { /* private mode */ }
   if (!id) {
-    id = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `sid-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    id = createOpaqueId('sid')
     try { localStorage.setItem('jpti_chat_sid', id) } catch { /* abaikan */ }
   }
   return id
+}
+
+function loadChatMessages() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || 'null')
+    if (!Array.isArray(saved) || saved.length === 0) return INITIAL_MESSAGES
+    const valid = saved.filter((message) => (
+      message && ['user', 'bot'].includes(message.role) &&
+      typeof message.text === 'string'
+    ))
+    return valid.length ? valid.slice(-MAX_SAVED_MESSAGES) : INITIAL_MESSAGES
+  } catch {
+    return INITIAL_MESSAGES
+  }
 }
 
 // ID pengguna utk persistent memory (§35) — UUID opaque per browser
@@ -45,9 +74,7 @@ function getUserMemoryId() {
   let id = null
   try { id = localStorage.getItem('jpti_user_id') } catch { /* private mode */ }
   if (!id) {
-    id = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `uid-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    id = createOpaqueId('uid')
     try { localStorage.setItem('jpti_user_id', id) } catch { /* abaikan */ }
   }
   return id
@@ -91,7 +118,7 @@ function Rich({ text }) {
 }
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState([{ role: 'bot', text: WELCOME }])
+  const [messages, setMessages] = useState(loadChatMessages)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState(null)
@@ -113,6 +140,15 @@ export default function ChatPage() {
   useEffect(() => {
     refreshMemories()
   }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        CHAT_HISTORY_KEY,
+        JSON.stringify(messages.slice(-MAX_SAVED_MESSAGES)),
+      )
+    } catch { /* private mode atau storage penuh */ }
+  }, [messages])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -152,6 +188,24 @@ export default function ChatPage() {
     } catch (e) {
       setError(e.message)
     }
+  }
+
+  const clearConversation = async () => {
+    if (busy || messages.length === 1) return
+    const previousSid = sidRef.current
+    setError(null)
+    try {
+      await clearChatSession(previousSid)
+    } catch {
+      // Rotasi session_id di bawah tetap memastikan konteks lama tak dipakai.
+    }
+    try {
+      localStorage.removeItem(CHAT_HISTORY_KEY)
+      localStorage.removeItem('jpti_chat_sid')
+    } catch { /* private mode */ }
+    sidRef.current = getSessionId()
+    setInput('')
+    setMessages(INITIAL_MESSAGES)
   }
 
   const lllmOff = status && !status.llm.configured
@@ -195,6 +249,18 @@ export default function ChatPage() {
       </section>
 
       <section className="chat-frame" aria-label="Percakapan chat">
+        <div className="chat-toolbar">
+          <span>Riwayat percakapan tersimpan di browser ini</span>
+          <button
+            type="button"
+            className="chat-clear"
+            onClick={clearConversation}
+            disabled={busy || messages.length === 1}
+            aria-label="Hapus seluruh percakapan chat"
+          >
+            Hapus chat
+          </button>
+        </div>
         <div className="chat-stream">
           {messages.map((m, i) => (
             <div key={i} className={m.role === 'user' ? 'msg user' : 'msg bot'}>

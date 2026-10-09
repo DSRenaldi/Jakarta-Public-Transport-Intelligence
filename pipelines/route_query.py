@@ -25,6 +25,10 @@ def norm(name: str) -> str:
     name = name.lower()
     name = re.sub(r"\s+", " ", name).strip()
     name = re.sub(r"[().]", "", name)
+    # Ejaan kawasan dan nama stasiun berbeda: penggunaan umum/BRT memakai
+    # "Priok", sedangkan nama resmi stasiun KRL adalah "Tanjung Priuk".
+    # Samakan hanya untuk pencarian; nama resmi yang ditampilkan tidak diubah.
+    name = re.sub(r"\bpriok\b", "priuk", name)
     return re.sub(r"\s+", " ", name).strip()
 
 

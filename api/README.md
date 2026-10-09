@@ -34,6 +34,8 @@ npm run dev
 | GET | `/api/ridership?mode=&period_type=` | Series penumpang (BPS, label `historis`) |
 | POST | `/api/route` | Cari rute A→B |
 | POST | `/api/rag` | Retrieval dokumen (hybrid + RRF) dengan sitasi |
+| POST | `/api/chat` | Percakapan chatbot dengan context per `session_id` |
+| DELETE | `/api/chat/session?session_id=` | Hapus history dan context session chat |
 | GET | `/maps/<file>` | Peta resmi galeri (static mount `dashboard/maps/`) — dipakai tab "Peta Resmi" frontend |
 
 ### POST /api/route
@@ -50,7 +52,21 @@ Body:
   - `no_route` — dua stop tidak terhubung
 - Field segmen `ride`: `mode`, `line_id`, `line` (nama lintas), **`corridor`**
   (kode koridor GTFS `route_short_name` — hanya BRT, mis. `1`, `12B`, `S21`;
-  `null` utk moda lain), `travel_sec`, `wait_sec`, `fare`.
+  `null` utk moda lain), `travel_sec`, `wait_sec`, `fare`, `time_method`, dan
+  `source_id`.
+- `itinerary` adalah langkah pengguna yang dibentuk deterministik dari seluruh
+  segmen berurutan. Ride berurutan pada layanan yang sama digabung; rangkaian
+  transfer jalan kaki menyimpan titik antara pada `via`.
+- `route_metrics` membedakan `service_change_count`, `mode_change_count`,
+  `walking_transfer_count`, dan nilai internal `routing_transfer_score`.
+  Field kompatibilitas `transfers` berarti pergantian layanan yang dapat
+  dijelaskan kepada pengguna, bukan skor penalti internal Dijkstra.
+- `sources` memuat provenance jaringan, tarif minimum, serta metodologi
+  perhitungan JPTI untuk audit internal/API. Routing tidak menggunakan RAG
+  untuk mencari sumber. Chatbot tidak menampilkan field ini sebagai sitasi
+  atau kartu referensi pada jawaban rute.
+- `time_display` adalah format publik jam/menit; `time_sec` tetap tersedia
+  sebagai metadata mesin tetapi tidak ditampilkan chatbot.
 - `disclaimer`: waktu rail = **proksi**, BRT dari jadwal GTFS, tarif flat minimum.
 
 ### POST /api/rag
@@ -81,3 +97,11 @@ Body:
   (tanpa key → jawaban template), cache exact/tool/prediksi + session via
   Redis opsional (tanpa `REDIS_URL` di `.env` → in-memory; namespace & TTL
   sesuai context.md §11). Detail arsitektur: `api/chatbot/`.
+- Klarifikasi rute disimpan terstruktur di session. Balasan nomor/nama kandidat
+  langsung dipetakan ke `stop_id`, mempertahankan asal/tujuan sebelumnya, lalu
+  menjalankan routing kembali. Ejaan pencarian `Priok` dan `Priuk` dianggap
+  setara tanpa mengubah nama resmi yang ditampilkan.
+- Frontend menyimpan maksimal 100 pesan chat terakhir di `localStorage`,
+  mempertahankan tab Chat setelah refresh, dan menyediakan tombol **Hapus
+  chat**. Tombol tersebut mereset session backend, merotasi `session_id`, dan
+  tidak menghapus persistent user memory yang dikelola terpisah.

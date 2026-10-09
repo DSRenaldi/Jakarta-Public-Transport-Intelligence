@@ -29,8 +29,9 @@ from .cache_store import (NS_EXACT, NS_LOCK, NS_PREDICTION, NS_ROUTE,
                           TTL_RIDERSHIP_SEC, get_store)
 from .session import STORE
 
-PROMPT_VERSION = "chat-v5"
+PROMPT_VERSION = "chat-v8"
 RAG_CACHE_VERSION = "rag-v2"
+ROUTE_RESPONSE_VERSION = "route-v2"
 
 SYSTEM_PROMPT = """Kamu adalah asisten percakapan JPTI untuk transportasi umum Jabodetabek (MRT Jakarta, KRL Commuter Line, LRT Jakarta, LRT Jabodebek, TransJakarta).
 
@@ -39,8 +40,8 @@ Tulis jawaban dalam Bahasa Indonesia yang sopan, jelas, dan ringkas (maksimal ~1
 Aturan wajib:
 1. Gunakan HANYA informasi di <Konteks>. Jangan mengarang angka, jadwal, tarif, atau status layanan.
 2. Jika konteks kosong atau data tidak mendukung, akui keterbatasannya dan tawarkan analisis terdekat. Jangan menebak.
-3. Setiap angka dicantumkan label datanya (historis/proksi/prediksi/aktual) beserta periode dan sumbernya.
-4. Bila <Konteks> memuat daftar sumber, SETIAP pernyataan faktual (angka, jadwal, tarif, isi dokumen) WAJIB diberi rujukan [n] yang sesuai. Bila tidak ada sumber, jangan menuliskan [n] dan akui ketiadaan datanya.
+3. Setiap angka harus berasal dari data yang dapat ditelusuri. Cantumkan label datanya (historis/proksi/prediksi/aktual) dan periode bila relevan.
+4. Untuk jawaban berbasis dokumen/RAG, setiap pernyataan faktual WAJIB diberi rujukan [n] yang sesuai. Aturan ini tidak berlaku untuk jawaban rute; referensi rute disimpan sebagai metadata internal dan tidak ditampilkan kepada pengguna.
 5. Perjalanan A→B berbeda dari B→A; sebutkan asal dan tujuan secara eksplisit.
 6. Jangan mencampur LRT Jakarta dengan LRT Jabodebek.
 7. Jika data merujuk beberapa titik yang mirip (kandidat ambigu), ajukan klarifikasi beserta opsinya.
@@ -54,6 +55,10 @@ Aturan wajib:
 15. Rekomendasikan waktu hanya jika waktu tersebut benar-benar berada di rentang kategori yang disebut di <Konteks>. Jangan mengisi celah atau menyimpulkan kategori yang tidak tersedia.
 16. Jangan menawarkan jadwal keberangkatan spesifik stasiun jika <Konteks> hanya memuat headway atau pola kepadatan.
 17. Simpan detail teknis untuk metadata aplikasi; isi jawaban harus mudah dipahami penumpang umum.
+18. Untuk rute, ikuti <Itinerary wajib> secara berurutan dan jangan menghilangkan satu langkah pun. Jangan membuat lokasi, layanan, atau perpindahan yang tidak ada di itinerary.
+19. Bedakan "transit/pergantian layanan" dari "ganti moda" sesuai metrik yang diberikan. Jangan menyebut nilai internal routing_transfer_score.
+20. Jangan menampilkan detik mentah. Tulis waktu dalam jam dan menit. Untuk tarif rute, selalu sebut "estimasi tarif minimum".
+21. Provenance rute telah diperiksa oleh sistem. Jangan mengatakan sumber rute tidak terverifikasi, jangan menampilkan nomor rujukan seperti [1], dan jangan membuat bagian daftar sumber. Jelaskan hanya bagian yang berupa perkiraan perhitungan secara ringkas.
 Balas hanya dengan teks jawaban."""
 
 EXTRACT_SYSTEM = """Kamu adalah ekstraktor slot untuk asisten transportasi. Balas HANYA dengan satu JSON object valid, tanpa teks lain."""
@@ -122,6 +127,7 @@ _LEAD_TRIM = re.compile(
     r"pergi\s+ke\s+|ke\s+|saya\s+di\s+|di\s+|cara\s+naik\s+|cara\s+|bagaimana\s+naik\s+)")
 _TRAIL_TRIM = re.compile(
     r"\s+(?:berapa\s+lama(?:nya)?|berapa\s+menit(?:nya)?|pakai\s+apa|pake\s+apa|"
+    r"(?:saya\s+)?harus\s+naik\s+apa|"
     r"pakai\s+moda\s+apa|berapa\s+kali\s+transit|berapa\s+kali\s+transfer|"
     r"berapa\s+transit|mana\s+yang\s+lebih\s+cepat|mana\s+yang\s+lebih\s+murah|"
     r"tanpa\s+transit|apakah\s+bisa\s+langsung|bisa\s+langsung|bagaimana\s+ya?|"
@@ -161,7 +167,9 @@ def _regex_slots(intent: str, text: str) -> dict:
     """Fallback ekstraksi tanpa LLM (dipakai bila GROQ_API_KEY belum diset)."""
     slots: dict = {}
     if intent == "route_planning":
-        m = (re.search(r"dari\s+(?P<o>.+?)\s+ke\s+(?P<d>.+)", text, re.I)
+        m = (re.search(
+                 r"dari\s+(?P<o>.+?)\s+(?:(?:ingin|mau|hendak)\s+)?"
+                 r"ke\s+(?P<d>.+)", text, re.I)
              or re.search(r"ke\s+(?P<d>.+?)\s+dari\s+(?P<o>.+)", text, re.I)
              or re.search(r"^saya\s+di\s+(?P<o>.+?)\s+mau\s+ke\s+(?P<d>.+)",
                           text, re.I))
@@ -194,7 +202,9 @@ def _regex_slots(intent: str, text: str) -> dict:
             slots["period"] = sorted(set(years))[0] if len(set(years)) == 1 \
                 else f"{min(years)} s.d. {max(years)}"
         if intent == "fare_query":
-            fm = (re.search(r"dari\s+(?P<o>.+?)\s+ke\s+(?P<d>.+)", text, re.I)
+            fm = (re.search(
+                      r"dari\s+(?P<o>.+?)\s+(?:(?:ingin|mau|hendak)\s+)?"
+                      r"ke\s+(?P<d>.+)", text, re.I)
                   or re.search(r"ke\s+(?P<d>.+?)\s+dari\s+(?P<o>.+)", text,
                                re.I))
             if fm:
@@ -220,7 +230,7 @@ def extract_slots(intent: str, question: str,
     if not llm.configured():
         return _regex_slots(intent, question)
     hist = "\n".join(f"{'P' if h['role'] == 'user' else 'J'}: {h['content']}"
-                     for h in history[-4:]) or "(kosong)"
+                     for h in history) or "(kosong)"
     try:
         return llm.extract_json(
             EXTRACT_SYSTEM + " " + _extract_user_spec(intent),
@@ -259,16 +269,22 @@ def run_tool(intent: str, slots: dict, question: str, net,
              ridership_rows: list[dict], data_version: str = "") -> dict:
     if intent == "route_planning":
         origin, dest = slots.get("origin"), slots.get("dest")
-        if not origin or not dest:
+        origin_id, dest_id = slots.get("origin_id"), slots.get("dest_id")
+        if not (origin_id and dest_id) and (not origin or not dest):
             return {"tool": "route", "result": {"status": "need_od"}}
         prefer = slots.get("preference") or "tercepat"
         if prefer not in ("tercepat", "termurah", "min_transfers", "longgar"):
             prefer = "tercepat"
-        subkey = (data_version + "|" + hashlib.sha1(
-            f"{origin}|{dest}|{prefer}".encode("utf-8")).hexdigest())
+        route_origin = origin_id or origin
+        route_dest = dest_id or dest
+        subkey = (ROUTE_RESPONSE_VERSION + "|" + data_version + "|"
+                  + hashlib.sha1(
+            f"{route_origin}|{route_dest}|{prefer}".encode("utf-8")).hexdigest())
         result = _tool_cached(
             NS_ROUTE, subkey, TTL_ROUTE_SEC,
-            lambda: tools.plan_route(net, origin, dest, prefer),
+            lambda: (tools.plan_route_ids(net, origin_id, dest_id, prefer)
+                     if origin_id and dest_id
+                     else tools.plan_route(net, origin, dest, prefer)),
             # ok & no_route deterministik per versi jaringan;
             # ambiguous/not_found/need_od tidak di-cache (§11.6)
             lambda r: r.get("status") in ("ok", "no_route"))
@@ -463,10 +479,32 @@ def _build_context(tool_out: dict, slots: dict | None = None) -> str:
     if tool == "route":
         st = res.get("status")
         if st == "ok":
-            return ("Hasil pencarian rute JPTI (waktu rail = proksi "
-                    "jarak/kecepatan rata-rata + dwell; BRT dari jadwal GTFS; "
-                    "tarif = flat minimum per moda):\n"
-                    + json.dumps(res, ensure_ascii=False))
+            context = {
+                "status": res["status"],
+                "preference": res["preference"],
+                "origin": res["origin"],
+                "dest": res["dest"],
+                "time_display": res.get("time_display") or res["time_fmt"],
+                "fare": res["fare"],
+                "route_metrics": res.get("route_metrics", {}),
+                "itinerary": [
+                    {key: value for key, value in leg.items()
+                     if key != "source_refs"}
+                    for leg in res.get("itinerary", [])
+                ],
+                "fare_basis": res.get("fare_basis"),
+                "time_basis": res.get("time_basis"),
+                "limitations": res.get("limitations"),
+                "provenance_available": bool(res.get("sources")),
+            }
+            return (
+                "Hasil perhitungan rute JPTI. <Itinerary wajib> di bawah "
+                "dibentuk deterministik dari seluruh segmen dan harus "
+                "dipertahankan urutannya. Provenance sudah diperiksa secara "
+                "internal dan tidak boleh ditampilkan sebagai referensi atau "
+                "sitasi pada jawaban pengguna.\n"
+                + json.dumps(context, ensure_ascii=False)
+            )
         if st == "need_od":
             return ("(asal/tujuan tidak teridentifikasi — minta pengguna "
                     "menyebutkan stasiun/halte asal dan tujuan)")
@@ -518,6 +556,10 @@ def _build_context(tool_out: dict, slots: dict | None = None) -> str:
 
 def _collect_sources(tool_out: dict) -> list[dict]:
     tool = tool_out.get("tool")
+    if tool == "route":
+        # Provenance rute tetap berada pada hasil tool/API untuk audit, tetapi
+        # tidak dikirim sebagai kartu referensi pada respons chatbot.
+        return []
     if tool != "rag":
         return []
     return tools.rag_sources(tool_out["result"])
@@ -544,33 +586,85 @@ def _fmt_idr(n) -> str:
     return f"Rp {n:,.0f}".replace(",", ".")
 
 
+_MODE_PLACE_LABEL = {
+    "KRL": "stasiun KRL",
+    "MRT": "stasiun MRT",
+    "LRT": "stasiun LRT",
+    "BRT": "halte TransJakarta",
+}
+
+
+def _candidate_label(candidate: dict) -> str:
+    name = candidate.get("display") or candidate.get("name") or "?"
+    place = _MODE_PLACE_LABEL.get(candidate.get("mode"),
+                                  candidate.get("mode") or "titik transit")
+    return f"{name} — {place}"
+
+
+def _ambiguous_route_reply(result: dict) -> str:
+    """Daftar kandidat deterministik; nomor sama dengan state session."""
+    parts = []
+    for tag in ("origin", "dest"):
+        candidates = (result.get("candidates") or {}).get(tag) or []
+        if not candidates:
+            continue
+        label = "asal" if tag == "origin" else "tujuan"
+        lines = [f"Nama {label} tersebut merujuk ke beberapa titik:"]
+        lines.extend(
+            f"{candidate.get('choice_number', index)}. "
+            f"{_candidate_label(candidate)}"
+            for index, candidate in enumerate(candidates, start=1)
+        )
+        lines.append("Balas dengan nomor pilihan atau nama titiknya.")
+        parts.append("\n".join(lines))
+        # Klarifikasi dilakukan satu sisi per giliran agar nomor tidak rancu.
+        break
+    return "\n".join(parts) or "Pilih titik asal atau tujuan yang dimaksud."
+
+
+def _route_reply(res: dict) -> str:
+    """Formatter kanonik: setiap leg tampil tepat sekali dan tetap kontinu."""
+    origin = res["origin"].get("display") or res["origin"]["name"]
+    destination = res["dest"].get("display") or res["dest"]["name"]
+    metrics = res.get("route_metrics") or {}
+    service_changes = metrics.get("service_change_count", res.get("transfers", 0))
+    mode_changes = metrics.get("mode_change_count", 0)
+    lines = [
+        f"Rute {res['preference']} dari {origin} ke {destination} "
+        f"diperkirakan sekitar {res.get('time_display') or res['time_fmt']}, "
+        f"dengan estimasi tarif minimum {_fmt_idr(res['fare'])}.",
+    ]
+    if service_changes:
+        mode_note = (f"; {mode_changes} di antaranya ganti moda"
+                     if mode_changes else "; tanpa ganti moda")
+        lines.append(f"Perjalanan memerlukan {service_changes} kali transit"
+                     f"{mode_note}.")
+    else:
+        lines.append("Perjalanan tidak memerlukan transit atau ganti moda.")
+    lines.append("Langkah perjalanan:")
+    for leg in res.get("itinerary", []):
+        lines.append(
+            f"{leg['step']}. {leg['instruction'].rstrip('.')}."
+        )
+    lines.append(
+        "Catatan: waktu merupakan perkiraan perhitungan jaringan dan belum "
+        "memperhitungkan gangguan atau kondisi operasional langsung."
+    )
+    return "\n".join(lines)
+
+
 def fallback_reply(intent: str, slots: dict, tool_out: dict) -> str:
     tool = tool_out["tool"]
     res = tool_out["result"]
     if tool == "route":
         st = res.get("status")
         if st == "ok":
-            o = res["origin"].get("display") or res["origin"]["name"]
-            d = res["dest"].get("display") or res["dest"]["name"]
-            return (f"Rute {o} → {d} (preferensi: {res['preference']}): "
-                    f"±{res['time_fmt']}, {res['transfers']} transit, "
-                    f"estimasi tarif minimum {_fmt_idr(res['fare'])} "
-                    f"(label: proksi — waktu rail dari jarak/kecepatan "
-                    f"rata-rata + dwell; tarif flat minimum per moda). "
-                    f"Detail segmen tersedia di halaman Penencana Rute.")
+            return _route_reply(res)
         if st == "need_od":
             return ("Untuk mencari rute, sebutkan stasiun/halte asal dan "
                     "tujuan, contoh: \"dari Dukuh Atas ke Lebak Bulus\".")
         if st == "ambiguous":
-            parts = []
-            for tag, cands in res["candidates"].items():
-                names = ", ".join(
-                    f"{c.get('display') or c['name']} ({c['mode']})"
-                    for c in cands[:4])
-                label = "asal" if tag == "origin" else "tujuan"
-                parts.append(f"untuk {label}: {names}")
-            return ("Nama yang Anda maksud bisa merujuk ke beberapa titik. "
-                    + " ".join(parts) + ". Bisa pilih yang mana?")
+            return _ambiguous_route_reply(res)
         if st == "no_route":
             o = res["origin"].get("display") or res["origin"]["name"]
             d = res["dest"].get("display") or res["dest"]["name"]
@@ -807,6 +901,266 @@ def _rag_citations_valid(reply: str, tool_out: dict) -> bool:
     return bool(cited) and all(1 <= value <= source_count for value in cited)
 
 
+_UNVERIFIED_ROUTE_RE = re.compile(
+    r"tanpa\s+sumber\s+(?:yang\s+)?terverifikasi|"
+    r"sumber(?:nya)?\s+(?:belum|tidak)\s+terverifikasi|"
+    r"hasil\s+rute\s+tidak\s+terverifikasi",
+    re.IGNORECASE,
+)
+
+
+def _route_reply_valid(reply: str, tool_out: dict) -> bool:
+    """Tolak ringkasan rute yang tidak utuh atau membocorkan referensi."""
+    if tool_out.get("tool") != "route":
+        return True
+    result = tool_out.get("result") or {}
+    if result.get("status") != "ok":
+        return True
+    if _UNVERIFIED_ROUTE_RE.search(reply) or re.search(
+            r"\b\d+(?:[.,]\d+)?\s*detik\b", reply, re.IGNORECASE):
+        return False
+
+    itinerary = result.get("itinerary") or []
+    if not itinerary:
+        return False
+    for before, after in zip(itinerary, itinerary[1:]):
+        if before["to"]["stop_id"] != after["from"]["stop_id"]:
+            return False
+
+    # Semua simpul batas leg harus muncul pada jawaban dengan urutan yang sama.
+    nodes = [itinerary[0]["from"]] + [leg["to"] for leg in itinerary]
+    normalized_reply = _normalize(reply).casefold()
+    cursor = 0
+    for node in nodes:
+        names = [node.get("display"), node.get("name")]
+        positions = [normalized_reply.find(_normalize(name).casefold(), cursor)
+                     for name in names if name]
+        positions = [position for position in positions if position >= 0]
+        if not positions:
+            return False
+        cursor = min(positions) + 1
+
+    fare = int(result.get("fare") or 0)
+    if fare:
+        plain = str(fare)
+        grouped = f"{fare:,}".replace(",", ".")
+        if plain not in reply.replace(" ", "") and grouped not in reply:
+            return False
+
+    # Referensi rute disimpan untuk audit internal, bukan untuk ditampilkan.
+    return re.search(r"\[\d+\]", reply) is None
+
+
+def _choice_norm(value: str) -> str:
+    value = _normalize(value).casefold()
+    value = re.sub(r"[().,]", "", value)
+    value = re.sub(r"\bpriok\b", "priuk", value)
+    value = re.sub(r"^(?:stasiun|halte)\s+", "", value)
+    return value.strip()
+
+
+def _new_pending_route(slots: dict, result: dict) -> dict:
+    candidates = {
+        tag: [{**candidate, "choice_number": index}
+              for index, candidate in enumerate(items, start=1)]
+        for tag, items in (result.get("candidates") or {}).items()
+    }
+    awaiting = next((tag for tag in ("origin", "dest")
+                     if candidates.get(tag)), None)
+    return {
+        "slots": {key: value for key, value in slots.items()
+                  if key in ("origin", "dest", "preference", "time")},
+        "resolved": result.get("resolved") or {},
+        "candidates": candidates,
+        "awaiting": awaiting,
+    }
+
+
+def _pending_prompt(pending: dict, prefix: str | None = None) -> str:
+    awaiting = pending.get("awaiting")
+    result = {"candidates": {
+        awaiting: (pending.get("candidates") or {}).get(awaiting, [])
+    }}
+    prompt = _ambiguous_route_reply(result)
+    return f"{prefix}\n{prompt}" if prefix else prompt
+
+
+def _continue_pending_route(question: str, pending: dict) -> dict:
+    """Interpretasi deterministik atas nomor/nama kandidat route session."""
+    q = _choice_norm(question)
+    if re.search(r"\b(?:batal|batalkan|tidak jadi)\b", q):
+        return {"kind": "cancel"}
+    if re.search(r"\bdari\s+.+\s+ke\s+.+", question, re.IGNORECASE):
+        return {"kind": "new_request"}
+
+    awaiting = pending.get("awaiting")
+    candidates = list((pending.get("candidates") or {}).get(awaiting) or [])
+    if not awaiting or not candidates:
+        return {"kind": "cancel"}
+
+    chosen = None
+    number = re.fullmatch(r"(?:nomor\s+|pilih\s+)?(\d+)", q)
+    if number:
+        selected_number = int(number.group(1))
+        chosen = next((candidate for index, candidate in
+                       enumerate(candidates, start=1)
+                       if candidate.get("choice_number", index)
+                       == selected_number), None)
+        if chosen is None:
+            return {"kind": "prompt", "pending": pending,
+                    "reply": _pending_prompt(
+                        pending, "Nomor pilihan tidak tersedia.")}
+    else:
+        requested_mode = None
+        if re.search(r"\bkrl\b|commuter", q):
+            requested_mode = "KRL"
+        elif re.search(r"\bmrt\b", q):
+            requested_mode = "MRT"
+        elif re.search(r"\blrt\b", q):
+            requested_mode = "LRT"
+        elif re.search(r"trans\s*jakarta|\bbrt\b|busway|^halte\b", q):
+            requested_mode = "BRT"
+        mode_only = bool(re.fullmatch(
+            r"(?:(?:pilih|yang)\s+)?(?:stasiun\s+|halte\s+)?"
+            r"(?:krl|commuter(?:\s+line)?|mrt|lrt|trans\s*jakarta|brt|busway)",
+            q,
+        ))
+
+        matches = []
+        for candidate in candidates:
+            names = [candidate.get("name"), candidate.get("display")]
+            names.extend(candidate.get("aliases") or [])
+            normalized = {_choice_norm(name) for name in names if name}
+            name_match = any(q == name for name in normalized)
+            contains_match = (len(q) >= 4 and any(
+                q in name or name in q for name in normalized
+            ))
+            mode_match = (requested_mode is not None
+                          and candidate.get("mode") == requested_mode)
+            if ((name_match or contains_match) and
+                    (requested_mode is None or mode_match)) or (
+                    mode_only and mode_match):
+                matches.append(candidate)
+
+        if len(matches) == 1:
+            chosen = matches[0]
+        elif len(matches) > 1:
+            narrowed = dict(pending)
+            narrowed["candidates"] = dict(pending.get("candidates") or {})
+            narrowed["candidates"][awaiting] = matches
+            return {"kind": "prompt", "pending": narrowed,
+                    "reply": _pending_prompt(
+                        narrowed,
+                        "Masih ada lebih dari satu titik dengan nama itu.")}
+        else:
+            if (len(q.split()) >= 3 or re.search(
+                    r"\b(?:tarif|jadwal|berapa|kepadatan|penumpang|dokumen|"
+                    r"halo|terima kasih)\b", q)):
+                return {"kind": "new_request"}
+            return {"kind": "prompt", "pending": pending,
+                    "reply": _pending_prompt(
+                        pending, "Pilihan belum dapat dikenali.")}
+
+    updated = dict(pending)
+    updated["resolved"] = dict(pending.get("resolved") or {})
+    updated["resolved"][awaiting] = chosen
+    updated["candidates"] = dict(pending.get("candidates") or {})
+    updated["candidates"].pop(awaiting, None)
+    next_awaiting = next((tag for tag in ("origin", "dest")
+                         if updated["candidates"].get(tag)), None)
+    updated["awaiting"] = next_awaiting
+    if next_awaiting:
+        return {"kind": "prompt", "pending": updated,
+                "reply": _pending_prompt(updated)}
+
+    resolved = updated["resolved"]
+    if not resolved.get("origin") or not resolved.get("dest"):
+        return {"kind": "cancel"}
+    slots = dict(updated.get("slots") or {})
+    for tag in ("origin", "dest"):
+        stop = resolved[tag]
+        slots[tag] = stop.get("display") or stop.get("name")
+        slots[f"{tag}_id"] = stop["stop_id"]
+    return {"kind": "ready", "slots": slots}
+
+
+def _preference_from_text(question: str) -> str | None:
+    q = question.casefold()
+    if "murah" in q:
+        return "termurah"
+    if "transit" in q and re.search(r"sedikit|minim", q):
+        return "min_transfers"
+    if re.search(r"longgar|sepi|tidak ramai", q):
+        return "longgar"
+    if re.search(r"cepat|tercepat", q):
+        return "tercepat"
+    return None
+
+
+def _contextual_route_slots(question: str,
+                            route_context: dict | None) -> dict | None:
+    """Pulihkan OD rute untuk follow-up singkat setelah rute berhasil."""
+    if not route_context or re.search(
+            r"\bdari\s+.+\s+ke\s+.+", question, re.IGNORECASE):
+        return None
+    origin, dest = route_context.get("origin"), route_context.get("dest")
+    if not origin or not dest:
+        return None
+    q = question.strip()
+    base = {
+        "origin": origin.get("display") or origin.get("name"),
+        "dest": dest.get("display") or dest.get("name"),
+        "origin_id": origin.get("stop_id"),
+        "dest_id": dest.get("stop_id"),
+        "preference": (_preference_from_text(q)
+                       or route_context.get("preference") or "tercepat"),
+    }
+    if re.search(r"\b(?:pulang|balik|arah sebaliknya)\b", q,
+                 re.IGNORECASE):
+        base["origin"], base["dest"] = base["dest"], base["origin"]
+        base["origin_id"], base["dest_id"] = (base["dest_id"],
+                                                base["origin_id"])
+        return base
+    dest_only = re.match(r"^(?:kalau\s+)?ke\s+(.+)$", q, re.IGNORECASE)
+    if dest_only:
+        base["dest"] = _clean_od(dest_only.group(1))
+        base.pop("dest_id", None)
+        return base
+    origin_only = re.match(r"^(?:kalau\s+)?dari\s+(.+)$", q,
+                           re.IGNORECASE)
+    if origin_only:
+        base["origin"] = _clean_od(origin_only.group(1))
+        base.pop("origin_id", None)
+        return base
+    if (_preference_from_text(q) or re.search(
+            r"berapa\s+(?:lama|menit|transit)|rute\s+(?:tadi|yang sama)",
+            q, re.IGNORECASE)):
+        return base
+    return None
+
+
+def _direct_session_reply(sid: str, question: str, reply: str,
+                          started_at: float, data_version: str) -> dict:
+    payload = {
+        "session_id": sid,
+        "reply": reply,
+        "intent": "route_planning",
+        "intent_confidence": 1.0,
+        "slots": {},
+        "sources": [],
+        "data_label": None,
+        "data_version": data_version or None,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "cache_status": "session_context",
+        "llm": False,
+        "prompt_version": PROMPT_VERSION,
+        "latency_ms": int((time.time() - started_at) * 1000),
+    }
+    STORE.append(sid, "user", question)
+    STORE.append(sid, "assistant", reply)
+    return payload
+
+
 # ---------- orkestrasi utama ----------
 
 def handle_chat(message: str, session_id: str | None, net,
@@ -845,8 +1199,56 @@ def handle_chat(message: str, session_id: str | None, net,
                  "journeys": []})
     personal = personal or mem["active"]
 
+    # Klarifikasi rute adalah state terstruktur, bukan tugas LLM. Nomor atau
+    # nama kandidat dipetakan ke stop_id lalu routing dijalankan ulang dengan
+    # asal/tujuan dari giliran sebelumnya.
+    contextual_slots = None
+    pending = STORE.pending_route(sid)
+    if pending:
+        action = _continue_pending_route(question, pending)
+        if action["kind"] == "new_request":
+            STORE.set_pending_route(sid, None)
+        elif action["kind"] == "cancel":
+            STORE.set_pending_route(sid, None)
+            return _direct_session_reply(
+                sid, question,
+                "Pemilihan titik dibatalkan. Silakan tulis rute baru dengan "
+                "format ‘dari ... ke ...’.",
+                t0, data_version,
+            )
+        elif action["kind"] == "prompt":
+            STORE.set_pending_route(sid, action["pending"])
+            return _direct_session_reply(
+                sid, question, action["reply"], t0, data_version)
+        elif action["kind"] == "ready":
+            STORE.set_pending_route(sid, None)
+            contextual_slots = action["slots"]
+
+    if contextual_slots is None:
+        contextual_slots = _contextual_route_slots(
+            question, STORE.route_context(sid))
+    slots = contextual_slots or {}
+
     key = _exact_key(question, data_version, mem["version"])
     store = get_store()
+
+    def _remember_route_from_payload(out: dict) -> None:
+        if out.get("intent") != "route_planning":
+            return
+        cached_slots = out.get("slots") or {}
+        origin_text, dest_text = (cached_slots.get("origin"),
+                                  cached_slots.get("dest"))
+        if not origin_text or not dest_text:
+            return
+        origin_matches = tools.match_stops(net, origin_text, top=2)
+        dest_matches = tools.match_stops(net, dest_text, top=2)
+        if not origin_matches or not dest_matches:
+            return
+        STORE.set_route_context(sid, {
+            "origin": tools.stop_brief(net, origin_matches[0][0]),
+            "dest": tools.stop_brief(net, dest_matches[0][0]),
+            "preference": cached_slots.get("preference") or "tercepat",
+        })
 
     def _hit(out: dict) -> dict:
         out = dict(out)
@@ -855,9 +1257,12 @@ def handle_chat(message: str, session_id: str | None, net,
         out["latency_ms"] = int((time.time() - t0) * 1000)
         STORE.append(sid, "user", question)
         STORE.append(sid, "assistant", out["reply"])
+        _remember_route_from_payload(out)
         return out
 
-    cached = store.get(key)
+    # Follow-up bergantung pada state session, sehingga tidak boleh memakai
+    # cache jawaban global untuk teks pendek seperti "4" atau "yang termurah".
+    cached = store.get(key) if contextual_slots is None else None
     if cached is not None:
         return _hit(cached)
 
@@ -865,9 +1270,11 @@ def handle_chat(message: str, session_id: str | None, net,
     # key ini; sisanya menunggu hasil muncul di cache (mencegah cache
     # stampede saat banyak pertanyaan identik datang bersamaan).
     lock_key = f"{NS_LOCK}:exact:{key}"
-    lock_taken = store.acquire_lock(lock_key)
+    lock_taken = (store.acquire_lock(lock_key)
+                  if contextual_slots is None else False)
     deadline = time.time() + 15
-    while not lock_taken and time.time() < deadline:
+    while (contextual_slots is None and not lock_taken
+           and time.time() < deadline):
         time.sleep(0.25)
         cached = store.get(key)
         if cached is not None:
@@ -876,14 +1283,16 @@ def handle_chat(message: str, session_id: str | None, net,
             break  # lock lepas tapi cache kosong → hitung sendiri
 
     try:
-        intent, conf = intents.classify(question)
+        intent, conf = (("route_planning", 1.0)
+                        if contextual_slots is not None
+                        else intents.classify(question))
         # Semantic cache (§11.2-B, §29): dicek SETELAH classifier (murah,
         # tanpa LLM) dan SEBELUM ekstraksi slot (LLM) — bila hit, kita
         # hemat slot+tool+komposisi LLM. Hard filter memakai slot
         # deterministik (regex) sebagai hint; aman karena salah ketik
         # hanya menghasilkan miss (hitung ulang), bukan salah hit.
         # Jawaban personal (memori pengguna §35.9) TIDAK melewati cache.
-        if intent != "other" and not personal:
+        if contextual_slots is None and intent != "other" and not personal:
             hint = _regex_slots(intent, question)
             sem = semantic_cache.lookup(
                 intent, question, hint, data_version, PROMPT_VERSION)
@@ -895,13 +1304,15 @@ def handle_chat(message: str, session_id: str | None, net,
                 out["latency_ms"] = int((time.time() - t0) * 1000)
                 STORE.append(sid, "user", question)
                 STORE.append(sid, "assistant", out["reply"])
+                _remember_route_from_payload(out)
                 print(f"[chat] {question[:60]!r} → semantic_hit "
                       f"({out['latency_ms']} ms)", flush=True)
                 return out
         # intent "other" (sapaan/off-topic) tidak memakai slot — lewati
         # panggilan LLM ekstraksi (hemat token; alur lain tak berubah)
-        slots = (extract_slots(intent, question, history)
-                 if intent != "other" else {})
+        if contextual_slots is None:
+            slots = (extract_slots(intent, question, history)
+                     if intent != "other" else {})
         # Memori persistent (§35.7): preferensi optimasi tersimpan jadi
         # preferensi default bila pengguna tidak menyebutkannya
         if intent == "route_planning" and not slots.get("preference"):
@@ -911,11 +1322,32 @@ def handle_chat(message: str, session_id: str | None, net,
         tool_out = run_tool(intent, slots, question, net, ridership_rows,
                             data_version)
 
+        if tool_out.get("tool") == "route":
+            route_result = tool_out.get("result") or {}
+            route_status = route_result.get("status")
+            if route_status == "ambiguous":
+                pending_route = _new_pending_route(slots, route_result)
+                STORE.set_pending_route(sid, pending_route)
+                route_result["candidates"] = pending_route["candidates"]
+            elif route_status in ("ok", "no_route"):
+                origin = route_result.get("origin")
+                dest = route_result.get("dest")
+                if origin and dest:
+                    STORE.set_route_context(sid, {
+                        "origin": origin,
+                        "dest": dest,
+                        "preference": slots.get("preference") or "tercepat",
+                    })
+                STORE.set_pending_route(sid, None)
+
         llm_used = False
-        if llm.configured():
+        if (tool_out.get("tool") == "route" and
+                (tool_out.get("result") or {}).get("status") == "ambiguous"):
+            reply = fallback_reply(intent, slots, tool_out)
+        elif llm.configured():
             ctx = _build_context(tool_out, slots)
             hist = "\n".join(f"{'P' if h['role'] == 'user' else 'J'}: "
-                             f"{h['content']}" for h in history[-4:]) \
+                             f"{h['content']}" for h in history) \
                 or "(kosong)"
             try:
                 mem_block = user_memory.prompt_block(mem)
@@ -938,6 +1370,9 @@ def handle_chat(message: str, session_id: str | None, net,
             reply = fallback_reply(intent, slots, tool_out)
 
         reply = _polish_reply(reply, intent, slots, tool_out)
+        if not _route_reply_valid(reply, tool_out):
+            reply = fallback_reply(intent, slots, tool_out)
+            llm_used = False
         if not _rag_citations_valid(reply, tool_out):
             reply = fallback_reply(intent, slots, tool_out)
             llm_used = False
@@ -965,7 +1400,8 @@ def handle_chat(message: str, session_id: str | None, net,
         # itu di kualitas rendah selama TTL. Tool result tetap
         # ter-cache (deterministik) — retry hanya membayar ulang LLM.
         routest = (tool_out.get("result") or {}).get("status")
-        if routest not in ("ambiguous", "need_od") and llm_used:
+        if (contextual_slots is None
+                and routest not in ("ambiguous", "need_od") and llm_used):
             store.set(key, payload, TTL_EXACT_SEC)
             # semantic cache: jawaban personal tak boleh disimpan global
             # (§35.9) — gate sama seperti saat lookup

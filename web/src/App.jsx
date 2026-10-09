@@ -11,6 +11,15 @@ const TABS = [
   { id: 'dashboard', label: 'Data', el: <Dashboard /> },
   { id: 'peta', label: 'Peta', el: <MapsPage /> },
 ]
+const ACTIVE_TAB_KEY = 'jpti_active_tab'
+
+function getInitialTab() {
+  try {
+    const saved = localStorage.getItem(ACTIVE_TAB_KEY)
+    if (TABS.some((tab) => tab.id === saved)) return saved
+  } catch { /* private mode */ }
+  return 'rute'
+}
 
 // Marka simpul interchange — tiga lin moda bertemu di satu stasiun
 function BrandMark() {
@@ -30,12 +39,17 @@ function BrandMark() {
 }
 
 export default function App() {
-  const [tab, setTab] = useState('rute')
+  const [tab, setTab] = useState(getInitialTab)
   const [health, setHealth] = useState(null)
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
   }, [])
+
+  const selectTab = (tabId) => {
+    setTab(tabId)
+    try { localStorage.setItem(ACTIVE_TAB_KEY, tabId) } catch { /* abaikan */ }
+  }
 
   return (
     <div className="app">
@@ -52,7 +66,7 @@ export default function App() {
             <button
               key={t.id}
               className={tab === t.id ? 'tab active' : 'tab'}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
             >
               {t.label}
             </button>

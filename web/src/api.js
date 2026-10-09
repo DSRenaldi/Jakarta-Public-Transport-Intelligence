@@ -52,6 +52,11 @@ export const askChat = (message, sessionId, userId) =>
 
 export const getChatStatus = () => api('/api/chat/status')
 
+export const clearChatSession = (sessionId) =>
+  api(`/api/chat/session?session_id=${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  })
+
 // Persistent user memory (§35) — user_id = UUID opaque buatan klien
 export const getMemory = (userId) =>
   api(`/api/memory?user_id=${encodeURIComponent(userId)}`)

@@ -39,15 +39,219 @@ def _line_info(net: Network, line_id):
 def _serialize_segment(net: Network, seg: dict) -> dict:
     if seg["type"] == "transfer":
         return {"type": "walk", "from": stop_brief(net, seg["from"]),
-                "to": stop_brief(net, seg["to"]), "walk_sec": seg["walk_sec"]}
+                "to": stop_brief(net, seg["to"]), "walk_sec": seg["walk_sec"],
+                "time_method": seg.get("time_method") or "walking_time_proxy",
+                "source_id": seg.get("source_id")}
     line_id = seg.get("line")
     line, corridor = _line_info(net, line_id)
     return {"type": "ride", "mode": seg["mode"], "line_id": line_id,
-            "line": line, "corridor": corridor,
+            "route_id": seg.get("route"), "line": line,
+            "corridor": corridor,
             "from": stop_brief(net, seg["from"]),
             "to": stop_brief(net, seg["to"]),
             "travel_sec": seg["travel_sec"], "wait_sec": seg["wait_sec"],
-            "fare": seg.get("fare", 0)}
+            "fare": seg.get("fare", 0),
+            "time_method": (seg.get("time_method")
+                            or ("gtfs_schedule_average"
+                                if seg["mode"] == "BRT"
+                                else "distance_speed_dwell_proxy")),
+            "source_id": (seg.get("source_id")
+                          or net.line_source.get(line_id))}
+
+
+def _duration_fmt(seconds: float) -> str:
+    minutes = max(1, int(round(float(seconds) / 60)))
+    if minutes < 60:
+        return f"{minutes} menit"
+    return f"{minutes // 60} jam {minutes % 60:02d} menit"
+
+
+def _stop_label(stop: dict) -> str:
+    return stop.get("display") or stop.get("name") or stop.get("stop_id") or "?"
+
+
+def _collapse_route_segments(segments: list[dict]) -> list[dict]:
+    """Gabungkan edge berurutan menjadi leg yang tetap kontinu.
+
+    Routing menyimpan satu edge per pasangan stop. Chatbot membutuhkan satu
+    langkah per layanan/jalan kaki, tetapi tidak boleh melompati edge transfer.
+    """
+    legs: list[dict] = []
+    for raw in segments:
+        seg = {**raw, "edge_count": 1, "via": []}
+        previous = legs[-1] if legs else None
+        continuous = bool(
+            previous
+            and previous["to"]["stop_id"] == seg["from"]["stop_id"]
+        )
+        same_ride = bool(
+            continuous and previous["type"] == seg["type"] == "ride"
+            and previous.get("mode") == seg.get("mode")
+            and previous.get("line_id") == seg.get("line_id")
+            and previous.get("route_id") == seg.get("route_id")
+        )
+        same_walk = bool(
+            continuous and previous["type"] == seg["type"] == "walk"
+        )
+        if same_ride:
+            previous["to"] = seg["to"]
+            previous["travel_sec"] += seg.get("travel_sec", 0)
+            previous["wait_sec"] += seg.get("wait_sec", 0)
+            previous["fare"] += seg.get("fare", 0)
+            previous["edge_count"] += 1
+            continue
+        if same_walk:
+            previous["via"].append(previous["to"])
+            previous["via"].extend(seg.get("via") or [])
+            previous["to"] = seg["to"]
+            previous["walk_sec"] += seg.get("walk_sec", 0)
+            previous["edge_count"] += 1
+            if not previous.get("source_id"):
+                previous["source_id"] = seg.get("source_id")
+            continue
+        legs.append(seg)
+    return legs
+
+
+def _route_metrics(legs: list[dict], routing_transfer_score: int) -> dict:
+    rides = [leg for leg in legs if leg["type"] == "ride"]
+    mode_change_count = sum(
+        1 for before, after in zip(rides, rides[1:])
+        if before.get("mode") != after.get("mode")
+    )
+    return {
+        "boarding_count": len(rides),
+        "service_change_count": max(0, len(rides) - 1),
+        "mode_change_count": mode_change_count,
+        "walking_transfer_count": sum(1 for leg in legs
+                                      if leg["type"] == "walk"),
+        # Nilai internal Dijkstra menghitung edge transfer dan boarding untuk
+        # penalti optimasi; jangan ditampilkan sebagai "pindah moda".
+        "routing_transfer_score": routing_transfer_score,
+    }
+
+
+def _route_sources(net: Network, legs: list[dict]) -> list[dict]:
+    by_id: dict[str, dict] = {}
+
+    def add(source_id: str | None, claim: str, label: str = "historis"):
+        if not source_id:
+            return
+        source = by_id.setdefault(source_id, {
+            **net.source_meta.get(source_id, {}),
+            "source_id": source_id,
+            "title": (net.source_meta.get(source_id, {}).get("title")
+                      or source_id),
+            "url": net.source_meta.get(source_id, {}).get("url"),
+            "fresh_label": label,
+            "claims": [],
+        })
+        if claim not in source["claims"]:
+            source["claims"].append(claim)
+
+    for leg in legs:
+        if leg["type"] == "ride":
+            add(leg.get("source_id"),
+                f"jaringan {leg.get('mode') or 'angkutan'}")
+            if leg.get("time_method") == "gtfs_schedule_average":
+                add(leg.get("source_id"), "waktu berdasarkan jadwal GTFS")
+            fare_meta = net.mode_fare_source.get(leg.get("mode")) or {}
+            add(fare_meta.get("source_id"),
+                f"tarif minimum {leg.get('mode') or 'moda'}")
+        elif leg.get("source_id"):
+            add(leg.get("source_id"), "koneksi transfer berjalan kaki")
+
+    # Metodologi merupakan provenance perhitungan, bukan sumber eksternal.
+    by_id["JPTI-ROUTING"] = {
+        "source_id": "JPTI-ROUTING",
+        "title": "Metodologi perhitungan rute JPTI",
+        "url": None,
+        "verified_at": None,
+        "status": "internal",
+        "fresh_label": "proksi",
+        "claims": [
+            "pencarian rute pada graf",
+            "waktu rail dari jarak, kecepatan rata-rata, dwell, dan waktu tunggu",
+            "waktu berjalan kaki dari jarak atau tabel transfer",
+        ],
+    }
+    sources = list(by_id.values())
+    for number, source in enumerate(sources, start=1):
+        source["n"] = number
+    return sources
+
+
+def _build_itinerary(legs: list[dict], sources: list[dict]) -> list[dict]:
+    source_numbers = {source["source_id"]: source["n"] for source in sources}
+    itinerary = []
+    for index, leg in enumerate(legs, start=1):
+        origin = _stop_label(leg["from"])
+        destination = _stop_label(leg["to"])
+        source_ids = ["JPTI-ROUTING"]
+        if leg.get("source_id"):
+            source_ids.insert(0, leg["source_id"])
+        if leg["type"] == "ride":
+            service = leg.get("corridor") or leg.get("line") or leg.get("mode")
+            duration = leg.get("travel_sec", 0) + leg.get("wait_sec", 0)
+            mode = leg.get("mode") or ""
+            service_label = (str(service) if str(service).casefold().startswith(
+                mode.casefold()) else f"{mode} {service}")
+            instruction = (f"Naik {service_label} dari {origin} "
+                           f"ke {destination} sekitar {_duration_fmt(duration)}.")
+        else:
+            duration = leg.get("walk_sec", 0)
+            via = ", ".join(_stop_label(stop) for stop in leg.get("via") or [])
+            via_text = f" melalui {via}" if via else ""
+            instruction = (f"Jalan kaki dari {origin} ke {destination} "
+                           f"sekitar {_duration_fmt(duration)}{via_text}.")
+        itinerary.append({
+            **leg,
+            "step": index,
+            "duration_sec": duration,
+            "duration_fmt": _duration_fmt(duration),
+            "instruction": instruction,
+            "source_ids": list(dict.fromkeys(source_ids)),
+            "source_refs": [source_numbers[sid] for sid in source_ids
+                            if sid in source_numbers],
+        })
+    return itinerary
+
+
+def serialize_route_result(net: Network, result, preference: str,
+                           origin_id: str, dest_id: str) -> dict:
+    """Bentuk kanonik hasil rute untuk API dan chatbot."""
+    segments = [_serialize_segment(net, segment)
+                for segment in result.segments]
+    legs = _collapse_route_segments(segments)
+    metrics = _route_metrics(legs, result.transfers)
+    sources = _route_sources(net, legs)
+    itinerary = _build_itinerary(legs, sources)
+    return {
+        "status": "ok",
+        "preference": preference,
+        "origin": stop_brief(net, origin_id),
+        "dest": stop_brief(net, dest_id),
+        "time_sec": result.time_sec,
+        "time_fmt": Network.fmt_time(result.time_sec),
+        "time_display": _duration_fmt(result.time_sec),
+        "fare": result.fare,
+        # Kompatibilitas API: transfers kini berarti pergantian layanan yang
+        # benar-benar dapat dijelaskan kepada pengguna.
+        "transfers": metrics["service_change_count"],
+        "route_metrics": metrics,
+        "segments": segments,
+        "itinerary": itinerary,
+        "sources": sources,
+        "data_label": "proksi",
+        "fare_basis": "tarif minimum per moda yang dinaiki",
+        "time_basis": (
+            "BRT memakai rata-rata jadwal GTFS bila tersedia; rail memakai "
+            "jarak, kecepatan rata-rata, dwell, dan waktu tunggu."
+        ),
+        "limitations": (
+            "Belum memperhitungkan gangguan dan kondisi operasional langsung."
+        ),
+    }
 
 
 # ---------- tool rute ----------
@@ -62,33 +266,63 @@ def plan_route(net: Network, origin: str, dest: str,
     if not d_cands:
         return {"status": "not_found", "where": "dest", "text": dest}
 
+    # Bila skor teks sama, kandidat dengan moda yang sama seperti titik asal
+    # ditempatkan lebih dahulu. Ini membuat stasiun KRL lebih relevan untuk
+    # perjalanan yang dimulai dari stasiun KRL, tanpa menghapus opsi BRT.
+    origin_best_count = sum(1 for _sid, score in o_cands
+                            if score == o_cands[0][1])
+    origin_mode = (net.stops[o_cands[0][0]].mode
+                   if origin_best_count == 1 else None)
+    if origin_mode:
+        d_cands.sort(key=lambda item: (
+            -item[1],
+            0 if net.stops[item[0]].mode == origin_mode else 1,
+            len(net.stops[item[0]].name),
+        ))
+
     ambiguous = {}
+    resolved = {}
     for tag, cands in (("origin", o_cands), ("dest", d_cands)):
-        if cands[0][1] < 100 and len(cands) > 1:
+        best_score = cands[0][1]
+        best_count = sum(1 for _sid, score in cands
+                         if score == best_score)
+        # Lebih dari satu kecocokan eksak lintas moda tetap ambigu. Untuk
+        # pencarian fuzzy, tampilkan kandidat terbaik agar pengguna memilih.
+        if len(cands) > 1 and (best_score < 100 or best_count > 1):
+            shown = ([item for item in cands if item[1] == best_score]
+                     if best_score == 100 else cands)
             ambiguous[tag] = [
                 {**stop_brief(net, sid), "score": score}
-                for sid, score in cands
+                for sid, score in shown
             ]
+        else:
+            resolved[tag] = stop_brief(net, cands[0][0])
     if ambiguous:
-        return {"status": "ambiguous", "candidates": ambiguous}
+        return {"status": "ambiguous", "candidates": ambiguous,
+                "resolved": resolved}
 
     origin_id, dest_id = o_cands[0][0], d_cands[0][0]
+    return plan_route_ids(net, origin_id, dest_id, prefer)
+
+
+def plan_route_ids(net: Network, origin_id: str, dest_id: str,
+                   prefer: str = "tercepat") -> dict:
+    """Jalankan routing dari stop_id yang sudah dipilih pengguna.
+
+    Jalur ini mencegah pilihan kandidat bernomor dicocokkan ulang sebagai
+    teks dan kembali menjadi ambigu.
+    """
+    if origin_id not in net.stops:
+        return {"status": "not_found", "where": "origin",
+                "text": origin_id}
+    if dest_id not in net.stops:
+        return {"status": "not_found", "where": "dest", "text": dest_id}
     res = net.route(origin_id, dest_id, prefer)
     if not res.found:
         return {"status": "no_route", "message": res.message,
                 "origin": stop_brief(net, origin_id),
                 "dest": stop_brief(net, dest_id)}
-    return {
-        "status": "ok",
-        "preference": prefer,
-        "origin": stop_brief(net, origin_id),
-        "dest": stop_brief(net, dest_id),
-        "time_sec": res.time_sec,
-        "time_fmt": Network.fmt_time(res.time_sec),
-        "fare": res.fare,
-        "transfers": res.transfers,
-        "segments": [_serialize_segment(net, s) for s in res.segments],
-    }
+    return serialize_route_result(net, res, prefer, origin_id, dest_id)
 
 
 # ---------- tool ridership ----------

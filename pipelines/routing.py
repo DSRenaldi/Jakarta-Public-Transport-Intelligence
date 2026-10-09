@@ -84,6 +84,10 @@ class Edge:
     line_id: str | None = None
     route_id: str | None = None
     is_transfer: bool = False
+    # Provenance metode waktu pada edge. Nilai ini ikut diteruskan ke hasil
+    # rute agar lapisan presentasi tidak perlu menebak asal perhitungannya.
+    time_method: str | None = None
+    source_id: str | None = None
 
 
 @dataclass
@@ -105,6 +109,11 @@ class Network:
         self.line_name: dict[str, str] = {}
         # display_name ( utk BRT memuat kode koridor, mis "13A — Ragunan - Blok M")
         self.line_display: dict[str, str] = {}
+        # Metadata provenance dimuat dari Postgres oleh netload. Routing tetap
+        # murni menghitung graf; presentasi/sitasi memakai metadata berikut.
+        self.line_source: dict[str, str | None] = {}
+        self.mode_fare_source: dict[str, dict] = {}
+        self.source_meta: dict[str, dict] = {}
 
     def add_stop(self, s: Stop):
         self.stops[s.stop_id] = s
@@ -185,13 +194,17 @@ class Network:
                 continue
             if e.is_transfer:
                 segs.append({"type": "transfer", "from": a[0], "to": b[0],
-                             "walk_sec": e.travel_sec})
+                             "walk_sec": e.travel_sec,
+                             "time_method": e.time_method,
+                             "source_id": e.source_id})
             else:
                 segs.append({"type": "ride", "mode": e.mode, "line": e.line_id,
                              "route": e.route_id, "from": a[0], "to": b[0],
                              "travel_sec": e.travel_sec,
                              "wait_sec": max(0.0, labels[b][2] - labels[a][2]),
-                             "fare": e.fare if b[1] != a[1] else 0})
+                             "fare": e.fare if b[1] != a[1] else 0,
+                             "time_method": e.time_method,
+                             "source_id": e.source_id})
         return RouteResult(True, best_lab[1], best_lab[3], best_lab[4], segs)
 
     def _find_edge(self, a: tuple, b: tuple) -> Edge | None:

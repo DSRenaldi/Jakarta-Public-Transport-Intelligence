@@ -31,6 +31,22 @@ def load_network(conn=None) -> Network:
     cur = conn.cursor()
     net = Network()
 
+    # ---------- registry provenance ----------
+    cur.execute("""
+        SELECT source_id, name, url, verified_at, status
+        FROM data_sources
+    """)
+    net.source_meta = {
+        source_id: {
+            "source_id": source_id,
+            "title": name,
+            "url": url,
+            "verified_at": verified_at.isoformat() if verified_at else None,
+            "status": status,
+        }
+        for source_id, name, url, verified_at, status in cur.fetchall()
+    }
+
     # ---------- stops ----------
     cur.execute("""
         SELECT stop_id_internal, mode_id, canonical_name, display_name,
@@ -57,20 +73,40 @@ def load_network(conn=None) -> Network:
             s.aliases.append(alias)
 
     # ---------- nama line utk tampilan ----------
-    cur.execute("SELECT line_id, canonical_name, display_name FROM lines")
+    cur.execute("""
+        SELECT line_id, canonical_name, display_name, source_id
+        FROM lines
+    """)
     net.line_name = {}
     net.line_display = {}
-    for line_id, canon, disp in cur.fetchall():
+    net.line_source = {}
+    for line_id, canon, disp, source_id in cur.fetchall():
         net.line_name[line_id] = canon
         net.line_display[line_id] = disp or canon
+        net.line_source[line_id] = source_id
 
     # ---------- tarif flat per moda (proxy: harga minimum POSITIF) ----------
     cur.execute("""
-        SELECT mode_id, MIN(price_idr)
-        FROM fares WHERE price_idr > 0
-        GROUP BY mode_id
+        SELECT DISTINCT ON (mode_id)
+               mode_id, price_idr, source_id, valid_from, valid_to,
+               legal_basis, fare_type
+        FROM fares
+        WHERE price_idr > 0
+        ORDER BY mode_id, price_idr, valid_from DESC NULLS LAST, fare_id
     """)
-    net.mode_fare = dict(cur.fetchall())
+    net.mode_fare = {}
+    net.mode_fare_source = {}
+    for (mode, price, source_id, valid_from, valid_to,
+         legal_basis, fare_type) in cur.fetchall():
+        net.mode_fare[mode] = price
+        net.mode_fare_source[mode] = {
+            "source_id": source_id,
+            "price_idr": price,
+            "valid_from": valid_from.isoformat() if valid_from else None,
+            "valid_to": valid_to.isoformat() if valid_to else None,
+            "legal_basis": legal_basis,
+            "fare_type": fare_type,
+        }
 
     # ---------- headway per line ----------
     cur.execute("""
@@ -141,24 +177,33 @@ def load_network(conn=None) -> Network:
                     sa, sb = net.stops[a], net.stops[b]
                     t = (haversine_m(sa.lat, sa.lon, sb.lat, sb.lon)
                          / SPEED_BY_MODE["BRT"]) * 3.6 + DWELL_SEC["BRT"]
+                    time_method = "distance_speed_dwell_proxy"
+                else:
+                    time_method = "gtfs_schedule_average"
             else:
                 sa, sb = net.stops[a], net.stops[b]
                 dist = haversine_m(sa.lat, sa.lon, sb.lat, sb.lon)
                 t = dist / SPEED_BY_MODE[mode] * 3.6 + DWELL_SEC.get(mode, 40)
+                time_method = "distance_speed_dwell_proxy"
             # edge tersedia dari semua state di a (boarding diurus di route()):
             for sm in ALL_STATES:
                 net.add_edge(a, sm, Edge(b, mode, t, wait, fare, mode, line_id,
-                                         route_id))
+                                         route_id,
+                                         time_method=time_method,
+                                         source_id=net.line_source.get(line_id)))
 
     # ---------- transfers ----------
     cur.execute("""
-        SELECT from_stop_id, to_stop_id, walking_time_sec FROM transfers
+        SELECT from_stop_id, to_stop_id, walking_time_sec, source_id
+        FROM transfers
     """)
-    for a, b, w in cur.fetchall():
+    for a, b, w, source_id in cur.fetchall():
         if a in net.stops and b in net.stops:
             for m in ALL_STATES:
                 net.add_edge(a, m, Edge(b, m, float(w), 0, 0, None, None, None,
-                                        is_transfer=True))
+                                        is_transfer=True,
+                                        time_method="transfer_table_walk",
+                                        source_id=source_id))
     # auto transfer antar moda < 250 m (SQL PostGIS)
     cur.execute(f"""
         SELECT a.stop_id_internal, b.stop_id_internal,
@@ -175,9 +220,13 @@ def load_network(conn=None) -> Network:
             continue
         w = max(60.0, float(m) / WALK_SPEED_MPS)
         for mm in ALL_STATES:
-            net.add_edge(a, mm, Edge(b, mm, w, 0, 0, None, None, None, is_transfer=True))
+            net.add_edge(a, mm, Edge(
+                b, mm, w, 0, 0, None, None, None, is_transfer=True,
+                time_method="geometry_walk_proxy"))
         for mm in ALL_STATES:
-            net.add_edge(b, mm, Edge(a, mm, w, 0, 0, None, None, None, is_transfer=True))
+            net.add_edge(b, mm, Edge(
+                a, mm, w, 0, 0, None, None, None, is_transfer=True,
+                time_method="geometry_walk_proxy"))
         n_auto += 1
 
     # auto transfer A<->B pada halte BRT yang sama (nama sama, jarak < 150 m)
@@ -197,10 +246,12 @@ def load_network(conn=None) -> Network:
                     continue
                 for mm in ALL_STATES:
                     net.add_edge(sids[i], mm, Edge(sids[j], mm, 60.0, 0, 0, None,
-                                                   None, None, is_transfer=True))
+                                                   None, None, is_transfer=True,
+                                                   time_method="geometry_walk_proxy"))
                 for mm in ALL_STATES:
                     net.add_edge(sids[j], mm, Edge(sids[i], mm, 60.0, 0, 0, None,
-                                                   None, None, is_transfer=True))
+                                                   None, None, is_transfer=True,
+                                                   time_method="geometry_walk_proxy"))
                 n_ab += 1
     if own:
         conn.close()
