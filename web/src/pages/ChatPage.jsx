@@ -1,56 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  askChat,
-  clearChatSession,
-  deleteAllMemory,
-  deleteMemory,
-  getChatStatus,
-  getMemory,
-} from '../api.js'
+import { askChat, clearChatSession, deleteAllMemory, deleteMemory, getChatStatus, getMemory } from '../api.js'
 
-const WELCOME = (
-  'Halo! Saya asisten JPTI. Tanya saya soal rute antar-stasiun, jumlah ' +
-  'penumpang, tarif, jadwal, kepadatan, atau dokumen resmi — untuk MRT ' +
-  'Jakarta, KRL Commuter Line, LRT Jakarta, LRT Jabodebek, dan TransJakarta.'
-)
-
-const SUGGESTIONS = [
-  'Bagaimana dari Dukuh Atas ke Lebak Bulus?',
-  'Berapa jumlah penumpang MRT tahun 2025?',
-  'Moda apa yang penumpangnya paling banyak?',
-  'Berapa tarif MRT Jakarta?',
-  'Jam berapa perjalanan MRT biasanya paling longgar?',
-  'Jam operasional LRT Jakarta?',
+const WELCOME = 'Halo! Saya siap membantu merencanakan rute, membandingkan penumpang, memeriksa tarif dan jadwal, atau mencari informasi dari dokumen resmi transportasi Jabodetabek.'
+const SUGGESTION_GROUPS = [
+  { label: 'Rencanakan', question: 'Bagaimana dari Dukuh Atas ke Lebak Bulus?', hint: 'Rute, waktu, dan perpindahan' },
+  { label: 'Cari data', question: 'Berapa jumlah penumpang MRT tahun 2025?', hint: 'Statistik dengan sumber' },
+  { label: 'Bandingkan', question: 'Moda apa yang penumpangnya paling banyak?', hint: 'Perbandingan antarmoda' },
+  { label: 'Pilih waktu', question: 'Jam berapa perjalanan MRT biasanya paling longgar?', hint: 'Perkiraan pola kepadatan' },
 ]
-
 const CHAT_HISTORY_KEY = 'jpti_chat_messages_v1'
 const INITIAL_MESSAGES = [{ role: 'bot', text: WELCOME }]
 const MAX_SAVED_MESSAGES = 100
-
 const INTENT_LABEL = {
-  route_planning: 'rute',
-  ridership_statistics: 'penumpang',
-  mode_comparison: 'perbandingan moda',
-  station_ranking: 'peringkat stasiun',
-  fare_query: 'tarif',
-  schedule_query: 'jadwal',
-  crowding: 'kepadatan',
-  policy_document: 'dokumen',
-  other: 'umum',
+  route_planning: 'rute', ridership_statistics: 'penumpang', mode_comparison: 'perbandingan moda',
+  station_ranking: 'peringkat stasiun', fare_query: 'tarif', schedule_query: 'jadwal', crowding: 'kepadatan',
+  policy_document: 'dokumen', other: 'umum',
 }
+const MEM_OPT_LABEL = { tercepat: 'rute tercepat', termurah: 'rute termurah', min_transfers: 'rute minim transit', longgar: 'rute lebih longgar' }
 
 function createOpaqueId(prefix) {
-  return (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function getSessionId() {
+function getStoredId(key, prefix) {
   let id = null
-  try { id = localStorage.getItem('jpti_chat_sid') } catch { /* private mode */ }
+  try { id = localStorage.getItem(key) } catch { /* private mode */ }
   if (!id) {
-    id = createOpaqueId('sid')
-    try { localStorage.setItem('jpti_chat_sid', id) } catch { /* abaikan */ }
+    id = createOpaqueId(prefix)
+    try { localStorage.setItem(key, id) } catch { /* private mode */ }
   }
   return id
 }
@@ -59,62 +36,27 @@ function loadChatMessages() {
   try {
     const saved = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || 'null')
     if (!Array.isArray(saved) || saved.length === 0) return INITIAL_MESSAGES
-    const valid = saved.filter((message) => (
-      message && ['user', 'bot'].includes(message.role) &&
-      typeof message.text === 'string'
-    ))
+    const valid = saved.filter((message) => message && ['user', 'bot'].includes(message.role) && typeof message.text === 'string')
     return valid.length ? valid.slice(-MAX_SAVED_MESSAGES) : INITIAL_MESSAGES
-  } catch {
-    return INITIAL_MESSAGES
-  }
+  } catch { return INITIAL_MESSAGES }
 }
 
-// ID pengguna utk persistent memory (§35) — UUID opaque per browser
-function getUserMemoryId() {
-  let id = null
-  try { id = localStorage.getItem('jpti_user_id') } catch { /* private mode */ }
-  if (!id) {
-    id = createOpaqueId('uid')
-    try { localStorage.setItem('jpti_user_id', id) } catch { /* abaikan */ }
-  }
-  return id
+function memLabel(memory) {
+  const value = memory.memory_value?.value
+  if (memory.memory_key === 'optimization') return MEM_OPT_LABEL[value] || `rute: ${value}`
+  if (memory.memory_key === 'preferred_mode') return `moda favorit: ${value}`
+  if (memory.memory_key === 'max_walking_minutes') return `jalan kaki maksimal ${value} menit`
+  if (memory.memory_key.startsWith('journey:')) return `rute rutin: ${memory.memory_value.origin} → ${memory.memory_value.dest}`
+  return memory.memory_key
 }
 
-const MEM_OPT_LABEL = {
-  tercepat: 'rute tercepat',
-  termurah: 'rute termurah',
-  min_transfers: 'rute minim transit',
-  longgar: 'rute longgar/sepi',
-}
-
-function memLabel(m) {
-  const v = m.memory_value?.value
-  if (m.memory_key === 'optimization') return MEM_OPT_LABEL[v] || `rute: ${v}`
-  if (m.memory_key === 'preferred_mode') return `moda favorit: ${v}`
-  if (m.memory_key === 'max_walking_minutes') return `jalan kaki maks ${v} mnt`
-  if (m.memory_key.startsWith('journey:'))
-    return `rute rutin: ${m.memory_value.origin} → ${m.memory_value.dest}`
-  return m.memory_key
-}
-
-// Render teks minimal: baris baru, poin "- ", dan **tebal** (tanpa lib external)
 function Rich({ text }) {
-  const lines = (text || '').split('\n')
-  return (
-    <>
-      {lines.map((ln, i) => {
-        const isLi = ln.startsWith('- ')
-        const body = isLi ? ln.slice(2) : ln
-        const parts = body.split(/\*\*(.+?)\*\*/g)
-        return (
-          <div key={i} className={isLi ? 'chat-li' : undefined}>
-            {isLi && <span className="chat-bullet" aria-hidden>•</span>}
-            {parts.map((p, j) => (j % 2 ? <strong key={j}>{p}</strong> : p))}
-          </div>
-        )
-      })}
-    </>
-  )
+  return <>{(text || '').split('\n').map((line, index) => {
+    const isList = line.startsWith('- ')
+    const body = isList ? line.slice(2) : line
+    const parts = body.split(/\*\*(.+?)\*\*/g)
+    return <div key={index} className={isList ? 'chat-li' : undefined}>{isList && <span className="chat-bullet" aria-hidden>•</span>}{parts.map((part, partIndex) => partIndex % 2 ? <strong key={partIndex}>{part}</strong> : part)}</div>
+  })}</>
 }
 
 export default function ChatPage() {
@@ -125,218 +67,89 @@ export default function ChatPage() {
   const [error, setError] = useState(null)
   const [memories, setMemories] = useState([])
   const endRef = useRef(null)
-  const sidRef = useRef(getSessionId())
-  const uidRef = useRef(getUserMemoryId())
+  const sidRef = useRef(getStoredId('jpti_chat_sid', 'sid'))
+  const uidRef = useRef(getStoredId('jpti_user_id', 'uid'))
 
+  useEffect(() => { getChatStatus().then(setStatus).catch(() => {}) }, [])
+  const refreshMemories = () => getMemory(uidRef.current).then((data) => setMemories(data.memories || [])).catch(() => {})
+  useEffect(() => { refreshMemories() }, [])
   useEffect(() => {
-    getChatStatus().then(setStatus).catch(() => {})
-  }, [])
-
-  const refreshMemories = () => {
-    getMemory(uidRef.current).then((d) => setMemories(d.memories || []))
-      .catch(() => {})
-  }
-
-  useEffect(() => {
-    refreshMemories()
-  }, [])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        CHAT_HISTORY_KEY,
-        JSON.stringify(messages.slice(-MAX_SAVED_MESSAGES)),
-      )
-    } catch { /* private mode atau storage penuh */ }
+    try { localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages.slice(-MAX_SAVED_MESSAGES))) } catch { /* storage unavailable */ }
   }, [messages])
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, busy])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [messages, busy])
 
   const send = async (raw) => {
     const text = (raw ?? input).trim()
     if (!text || busy) return
-    setInput('')
-    setBusy(true)
-    setError(null)
-    setMessages((m) => [...m, { role: 'user', text }])
+    setInput(''); setBusy(true); setError(null); setMessages((current) => [...current, { role: 'user', text }])
     try {
-      const r = await askChat(text, sidRef.current, uidRef.current)
-      setMessages((m) => [...m, { role: 'bot', text: r.reply, ...r }])
+      const response = await askChat(text, sidRef.current, uidRef.current)
+      setMessages((current) => [...current, { role: 'bot', text: response.reply, ...response }])
       refreshMemories()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
+    } catch (requestError) { setError(requestError.message) }
+    finally { setBusy(false) }
   }
 
-  const removeMem = async (m) => {
-    try {
-      await deleteMemory(uidRef.current, m.memory_id)
-      refreshMemories()
-    } catch (e) {
-      setError(e.message)
-    }
+  const removeMemory = async (memory) => {
+    try { await deleteMemory(uidRef.current, memory.memory_id); refreshMemories() } catch (requestError) { setError(requestError.message) }
   }
-
-  const clearAllMem = async () => {
-    try {
-      await deleteAllMemory(uidRef.current)
-      refreshMemories()
-    } catch (e) {
-      setError(e.message)
-    }
+  const clearAllMemories = async () => {
+    try { await deleteAllMemory(uidRef.current); refreshMemories() } catch (requestError) { setError(requestError.message) }
   }
-
   const clearConversation = async () => {
     if (busy || messages.length === 1) return
-    const previousSid = sidRef.current
-    setError(null)
-    try {
-      await clearChatSession(previousSid)
-    } catch {
-      // Rotasi session_id di bawah tetap memastikan konteks lama tak dipakai.
-    }
-    try {
-      localStorage.removeItem(CHAT_HISTORY_KEY)
-      localStorage.removeItem('jpti_chat_sid')
-    } catch { /* private mode */ }
-    sidRef.current = getSessionId()
-    setInput('')
-    setMessages(INITIAL_MESSAGES)
+    try { await clearChatSession(sidRef.current) } catch { /* rotating id is sufficient */ }
+    try { localStorage.removeItem(CHAT_HISTORY_KEY); localStorage.removeItem('jpti_chat_sid') } catch { /* private mode */ }
+    sidRef.current = getStoredId('jpti_chat_sid', 'sid')
+    setInput(''); setError(null); setMessages(INITIAL_MESSAGES)
   }
 
-  const lllmOff = status && !status.llm.configured
+  const llmOff = status && !status.llm.configured
 
   return (
-    <div className="page">
-      <section className="card">
-        <h2>Chat</h2>
-        <p className="note">
-          Asisten percakapan: intent dikenali model klasifikasi ML klasik, data
-          diambil dari tool (rute, database penumpang, RAG dokumen resmi), dan
-          jawaban disusun LLM. Angka selalu membawa label
-          (<code>aktual</code>/<code>historis</code>/<code>prediksi</code>/<code>proksi</code>)
-          dan sumber.
-        </p>
-        {status && (
-          <p className="note small">
-            Intent model: akurasi holdout {Math.round((status.intent_model?.accuracy_holdout ?? 0) * 100)}%
-            {' '}· LLM {status.llm.model}{' '}
-            {lllmOff ? '(belum dikonfigurasi — jawaban memakai template)' : ''}
-          </p>
-        )}
-        {memories.length > 0 && (
-          <div className="mem-panel">
-            <span className="mem-title">Diingat:</span>
-            {memories.map((m) => (
-              <span key={m.memory_id} className="mem-chip" title={m.memory_key}>
-                {memLabel(m)}
-                <button
-                  className="mem-x"
-                  aria-label={`hapus memori ${memLabel(m)}`}
-                  onClick={() => removeMem(m)}
-                >×</button>
-              </span>
-            ))}
-            <button className="mem-clear" onClick={clearAllMem}>
-              hapus semua
-            </button>
+    <div className="page assistant-page">
+      <div className="assistant-layout">
+        <section className="chat-frame" aria-label="Percakapan chat">
+          <div className="chat-toolbar">
+            <span className="assistant-presence"><span className="system-dot online" /><span><strong>Asisten siap</strong><small>Riwayat tersimpan di perangkat ini</small></span></span>
+            <button type="button" className="chat-clear" onClick={clearConversation} disabled={busy || messages.length === 1}>Hapus percakapan</button>
           </div>
-        )}
-      </section>
-
-      <section className="chat-frame" aria-label="Percakapan chat">
-        <div className="chat-toolbar">
-          <span>Riwayat percakapan tersimpan di browser ini</span>
-          <button
-            type="button"
-            className="chat-clear"
-            onClick={clearConversation}
-            disabled={busy || messages.length === 1}
-            aria-label="Hapus seluruh percakapan chat"
-          >
-            Hapus chat
-          </button>
-        </div>
-        <div className="chat-stream">
-          {messages.map((m, i) => (
-            <div key={i} className={m.role === 'user' ? 'msg user' : 'msg bot'}>
-              {m.role === 'user' ? (
-                <div className="bubble">{m.text}</div>
-              ) : (
+          <div className="chat-stream">
+            {messages.map((message, index) => (
+              <div key={index} className={message.role === 'user' ? 'msg user' : 'msg bot'}>
                 <div className="bubble">
-                  <Rich text={m.text} />
-                  {m.intent && (
-                    <p className="chat-meta">
-                      {INTENT_LABEL[m.intent] || m.intent}
-                      {m.data_label ? ` · data ${m.data_label}` : ''}
-                      {m.latency_ms != null ? ` · ${(m.latency_ms / 1000).toFixed(1)} dtk` : ''}
-                      {m.cache_status === 'exact_hit' ? ' · cached' : m.cache_status === 'semantic_hit' ? ' · cached (serupa)' : ''}
-                      {m.llm === false ? ' · template' : ''}
-                    </p>
-                  )}
-                  {m.sources?.length > 0 && (
-                    <div className="chat-sources">
-                      {m.sources.map((s) => (
-                        <a
-                          key={s.n}
-                          className="chat-src"
-                          href={s.url || undefined}
-                          target={s.url ? '_blank' : undefined}
-                          rel="noopener"
-                          title={`${s.title || ''} — ${s.source_id || ''}${s.published_at ? ' · terbit ' + s.published_at : ''}`}
-                        >
-                          [{s.n}] {s.title}{s.pages?.[0] ? ` · hlm ${s.pages[0]}` : ''}
-                          {s.url ? ' ↗' : ''}
-                        </a>
-                      ))}
-                    </div>
-                  )}
+                  {message.role === 'user' ? message.text : <Rich text={message.text} />}
+                  {message.role === 'bot' && message.intent && <p className="chat-meta">{INTENT_LABEL[message.intent] || message.intent}{message.data_label ? ` · data ${message.data_label}` : ''}{message.latency_ms != null ? ` · ${(message.latency_ms / 1000).toFixed(1)} detik` : ''}{message.cache_status === 'exact_hit' ? ' · dari cache' : message.cache_status === 'semantic_hit' ? ' · dari pertanyaan serupa' : ''}</p>}
+                  {message.role === 'bot' && message.sources?.length > 0 && <div className="chat-sources">{message.sources.map((source) => <a key={source.n} className="chat-src" href={source.url || undefined} target={source.url ? '_blank' : undefined} rel="noopener" title={`${source.title || ''} — ${source.source_id || ''}`}>[{source.n}] {source.title}{source.pages?.[0] ? ` · halaman ${source.pages[0]}` : ''}{source.url ? ' ↗' : ''}</a>)}</div>}
                 </div>
-              )}
-            </div>
-          ))}
-          {busy && (
-            <div className="msg bot">
-              <div className="bubble">
-                <span className="typing" aria-label="mengetik"><i /><i /><i /></span>
               </div>
-            </div>
-          )}
-          <div ref={endRef} />
-        </div>
-
-        {messages.length === 1 && (
-          <div className="chat-suggest">
-            <div className="chips">
-              {SUGGESTIONS.map((s) => (
-                <button key={s} className="chip" onClick={() => send(s)} disabled={busy}>{s}</button>
-              ))}
-            </div>
+            ))}
+            {busy && <div className="msg bot"><div className="bubble"><span className="typing" aria-label="Asisten sedang menyusun jawaban"><i /><i /><i /></span></div></div>}
+            <div ref={endRef} />
           </div>
-        )}
 
-        {error && <p className="error" style={{ padding: '0 16px 8px', margin: 0 }}>Gagal: {error}</p>}
+          {messages.length === 1 && <div className="prompt-grid">{SUGGESTION_GROUPS.map((item) => (
+            <button key={item.question} className="prompt-card" onClick={() => send(item.question)} disabled={busy}><span>{item.label}</span><strong>{item.question}</strong><small>{item.hint}</small></button>
+          ))}</div>}
+          {error && <p className="error chat-error">Pertanyaan belum dapat diproses: {error}</p>}
+          <div className="chat-input-row">
+            <input className="chat-input" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && send()} placeholder="Tanyakan rute, tarif, jadwal, atau data…" aria-label="Pesan chat" disabled={busy} maxLength={1000} />
+            <button className="btn primary send-button" onClick={() => send()} disabled={busy || !input.trim()}><span>Kirim</span><span aria-hidden>→</span></button>
+          </div>
+        </section>
 
-        <div className="chat-input-row">
-          <input
-            className="chat-input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && send()}
-            placeholder="Tulis pertanyaan… (Enter untuk kirim)"
-            aria-label="Pesan chat"
-            disabled={busy}
-            maxLength={1000}
-          />
-          <button className="btn primary" onClick={() => send()} disabled={busy || !input.trim()}>
-            Kirim
-          </button>
-        </div>
-      </section>
+        <aside className="assistant-context" aria-label="Konteks dan memori asisten">
+          <div className="context-section"><span className="section-kicker">Konteks aktif</span><h2>Preferensi perjalanan</h2><p>Asisten menggunakan preferensi yang Anda minta untuk diingat. Memori dapat dihapus kapan saja.</p></div>
+          {memories.length > 0 ? (
+            <div className="memory-list">
+              {memories.map((memory) => <div key={memory.memory_id} className="memory-item"><span className="memory-glyph" aria-hidden>◇</span><span><strong>{memLabel(memory)}</strong><small>Digunakan untuk rekomendasi berikutnya</small></span><button className="mem-x" aria-label={`Hapus memori ${memLabel(memory)}`} onClick={() => removeMemory(memory)}>×</button></div>)}
+              <button className="text-button danger" onClick={clearAllMemories}>Hapus semua memori</button>
+            </div>
+          ) : <div className="empty-context"><span aria-hidden>◇</span><p>Belum ada preferensi yang disimpan.</p><small>Coba katakan: “Ingat saya lebih suka rute minim transit.”</small></div>}
+          <div className="trust-card"><span className="trust-icon" aria-hidden>✓</span><div><strong>Jawaban dapat ditelusuri</strong><p>Statistik berasal dari database. Kebijakan dan dokumen menyertakan sumber.</p></div></div>
+          <details className="system-details"><summary>Status sistem</summary>{status ? <p>Model intent {Math.round((status.intent_model?.accuracy_holdout ?? 0) * 100)}% · penyusun jawaban {status.llm.model}{llmOff ? ' · mode template' : ''}</p> : <p>Status belum tersedia.</p>}</details>
+        </aside>
+      </div>
     </div>
   )
 }
