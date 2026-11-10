@@ -142,6 +142,8 @@ def _stop_brief(net: Network, sid: str) -> dict:
 class RouteRequest(BaseModel):
     origin: str = Field(min_length=1)
     dest: str = Field(min_length=1)
+    origin_id: str | None = None
+    dest_id: str | None = None
     prefer: str = "tercepat"
     origin_mode: str | None = None
     dest_mode: str | None = None
@@ -237,19 +239,29 @@ def route(req: RouteRequest):
         raise HTTPException(422, f"prefer harus salah satu dari {PREFERENCES}")
     net = STATE.net
 
-    def _resolve(label: str, text: str, m: str | None):
+    def _resolve(label: str, text: str, m: str | None,
+                 stop_id: str | None):
+        if stop_id:
+            stop = net.stops.get(stop_id)
+            if not stop:
+                raise HTTPException(404, f"{label} tidak ditemukan: '{stop_id}'")
+            if m and stop.mode != m:
+                raise HTTPException(
+                    422, f"{label} {stop_id} bukan bagian dari moda {m}")
+            return [(stop_id, 100)]
         cands = match_stops(net, text, top=req.top, mode=m)
         if not cands:
             raise HTTPException(404, f"{label} tidak ditemukan: '{text}'")
         return cands
 
-    o_cands = _resolve("Origin", req.origin, req.origin_mode)
-    d_cands = _resolve("Destinasi", req.dest, req.dest_mode)
+    o_cands = _resolve("Origin", req.origin, req.origin_mode, req.origin_id)
+    d_cands = _resolve("Destinasi", req.dest, req.dest_mode, req.dest_id)
 
     # ambigu: tidak ada kecocokan eksak (skor 100) → kembalikan kandidat
     ambiguous = {}
     for tag, cands in (("origin", o_cands), ("dest", d_cands)):
-        shown = ambiguous_stop_candidates(net, cands)
+        stop_id = req.origin_id if tag == "origin" else req.dest_id
+        shown = [] if stop_id else ambiguous_stop_candidates(net, cands)
         if shown:
             ambiguous[tag] = [
                 {**_stop_brief(net, sid), "score": score}

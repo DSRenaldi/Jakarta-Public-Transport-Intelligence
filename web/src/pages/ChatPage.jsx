@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { askChat, clearChatSession, deleteAllMemory, deleteMemory, getChatStatus, getMemory } from '../api.js'
+import { resolvedJourneyPrefill } from '../journey-prefill.js'
 
 const WELCOME = 'Halo! Saya siap membantu merencanakan rute, membandingkan penumpang, memeriksa tarif dan jadwal, atau mencari informasi dari dokumen resmi transportasi Jabodetabek.'
 const SUGGESTION_GROUPS = [
@@ -121,15 +122,11 @@ export default function ChatPage({ onOpenJourney }) {
                   {message.role === 'user' ? message.text : <Rich text={message.text} />}
                   {message.role === 'bot' && message.intent && <p className="chat-meta">{INTENT_LABEL[message.intent] || message.intent}{message.data_label ? ` · data ${message.data_label}` : ''}{message.latency_ms != null ? ` · ${(message.latency_ms / 1000).toFixed(1)} detik` : ''}{message.cache_status === 'exact_hit' ? ' · dari cache' : message.cache_status === 'semantic_hit' ? ' · dari pertanyaan serupa' : ''}</p>}
                   {message.role === 'bot' && message.sources?.length > 0 && <div className="chat-sources">{message.sources.map((source) => <a key={source.n} className="chat-src" href={source.url || undefined} target={source.url ? '_blank' : undefined} rel="noopener" title={`${source.title || ''} — ${source.source_id || ''}`}>[{source.n}] {source.title}{source.pages?.[0] ? ` · halaman ${source.pages[0]}` : ''}{source.url ? ' ↗' : ''}</a>)}</div>}
-                  {message.role === 'bot' && message.intent === 'route_planning' && message.slots?.origin && message.slots?.dest && onOpenJourney && (
+                  {message.role === 'bot' && resolvedJourneyPrefill(message) && onOpenJourney && (
                     <button
                       type="button"
                       className="chat-route-action"
-                      onClick={() => onOpenJourney({
-                        origin: message.slots.origin,
-                        dest: message.slots.dest,
-                        prefer: message.slots.preference || 'tercepat',
-                      })}
+                      onClick={() => onOpenJourney(resolvedJourneyPrefill(message))}
                     >
                       <span aria-hidden>↗</span> Buka rute di Perjalanan
                     </button>

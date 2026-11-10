@@ -29,7 +29,7 @@ from .cache_store import (NS_EXACT, NS_LOCK, NS_PREDICTION, NS_ROUTE,
                           TTL_RIDERSHIP_SEC, get_store)
 from .session import STORE
 
-PROMPT_VERSION = "chat-v9"
+PROMPT_VERSION = "chat-v10"
 RAG_CACHE_VERSION = "rag-v2"
 ROUTE_RESPONSE_VERSION = "route-v3"
 
@@ -578,6 +578,29 @@ def _data_label(tool_out: dict) -> str | None:
         labels = {s["fresh_label"] for s in srcs if s.get("fresh_label")}
         return sorted(labels)[0] if len(labels) == 1 else None
     return None
+
+
+def _resolved_journey(tool_out: dict) -> dict | None:
+    """Kontrak navigasi halaman Perjalanan dari hasil tool yang final.
+
+    Nama saja tidak cukup karena satu nama dapat dipakai lintas moda. Tombol
+    navigasi hanya boleh tersedia untuk rute sukses dan selalu membawa
+    ``stop_id`` serta moda yang benar-benar dipakai routing engine.
+    """
+    if tool_out.get("tool") != "route":
+        return None
+    result = tool_out.get("result") or {}
+    if result.get("status") != "ok":
+        return None
+    origin, dest = result.get("origin"), result.get("dest")
+    if not (origin and dest and origin.get("stop_id")
+            and dest.get("stop_id")):
+        return None
+    return {
+        "origin": origin,
+        "dest": dest,
+        "preference": result.get("preference") or "tercepat",
+    }
 
 
 # ---------- fallback tanpa LLM ----------
@@ -1444,6 +1467,7 @@ def handle_chat(message: str, session_id: str | None, net,
             "cache_status": "miss",
             "llm": llm_used,
             "prompt_version": PROMPT_VERSION,
+            "journey": _resolved_journey(tool_out),
             "latency_ms": int((time.time() - t0) * 1000),
         }
         # jangan cache jawaban ambigu / need clarification (spesifikasi

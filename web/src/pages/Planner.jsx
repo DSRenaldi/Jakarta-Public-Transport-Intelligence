@@ -8,6 +8,7 @@ import { searchStops, findRoute } from '../api.js'
 import { MODE_COLORS, WALK_COLOR, fmtTime, dispName } from '../lib.js'
 import { buildRouteMapData } from '../route-map.js'
 import { buildRouteDetailData } from '../route-detail.js'
+import { pickPrefillCandidate, prefillStopLabel } from '../journey-prefill.js'
 
 const MODES = ['MRT', 'KRL', 'LRT', 'BRT']
 const PREFS = [
@@ -297,15 +298,6 @@ function JourneyMap({ result }) {
   )
 }
 
-function pickPrefillCandidate(response, label) {
-  const candidates = response?.candidates || []
-  const wanted = label.trim().toLocaleLowerCase('id-ID')
-  return candidates.find((candidate) => [candidate.display, candidate.name]
-    .filter(Boolean)
-    .some((name) => name.trim().toLocaleLowerCase('id-ID') === wanted))
-    || (candidates.length === 1 ? candidates[0] : null)
-}
-
 export default function Planner({ prefill, onPrefillConsumed }) {
   const [origin, setOrigin] = useState(null)
   const [dest, setDest] = useState(null)
@@ -327,6 +319,7 @@ export default function Planner({ prefill, onPrefillConsumed }) {
     try {
       const response = await findRoute({
         origin: dispName(nextOrigin), dest: dispName(nextDest), prefer: nextPrefer,
+        origin_id: nextOrigin.stop_id, dest_id: nextDest.stop_id,
         origin_mode: nextOriginMode, dest_mode: nextDestMode, dep_time: nextTime,
       })
       setResult(response)
@@ -343,8 +336,8 @@ export default function Planner({ prefill, onPrefillConsumed }) {
       setError(null)
       try {
         const [originResponse, destResponse] = await Promise.all([
-          searchStops(prefill.origin, undefined, 7),
-          searchStops(prefill.dest, undefined, 7),
+          searchStops(prefillStopLabel(prefill.origin), prefill.origin?.mode, 7),
+          searchStops(prefillStopLabel(prefill.dest), prefill.dest?.mode, 7),
         ])
         if (cancelled) return
         const nextOrigin = pickPrefillCandidate(originResponse, prefill.origin)

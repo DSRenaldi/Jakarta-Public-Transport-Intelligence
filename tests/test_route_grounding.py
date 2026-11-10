@@ -207,6 +207,18 @@ class RouteGroundingTests(unittest.TestCase):
             )
         self.assertTrue(keys[0].startswith("route-v3|data-v1|"))
 
+    def test_resolved_journey_uses_canonical_stop_ids(self):
+        journey = chat._resolved_journey(self.tool_out)
+        self.assertEqual(journey["origin"]["stop_id"], "KRL_tambun")
+        self.assertEqual(journey["dest"]["stop_id"], "MRT_senayan")
+        self.assertEqual(journey["origin"]["mode"], "KRL")
+        self.assertEqual(journey["dest"]["mode"], "MRT")
+
+        ambiguous = {"tool": "route", "result": {
+            "status": "ambiguous", "candidates": {"dest": []},
+        }}
+        self.assertIsNone(chat._resolved_journey(ambiguous))
+
     def test_exact_alias_across_modes_is_generic_for_both_endpoints(self):
         cases = (
             ("origin", "Central", "Terminal", "LRT", "MRT"),
@@ -309,9 +321,14 @@ class RouteGroundingTests(unittest.TestCase):
             self.assertEqual(first["intent"], "route_planning")
             self.assertIn("stasiun KRL", first["reply"])
             self.assertIn("halte TransJakarta", first["reply"])
+            self.assertIsNone(first.get("journey"))
             self.assertIn(f"{original_number}. Tanjung Priok", second["reply"])
             self.assertEqual(third["slots"]["origin_id"], "KRL_tambun")
             self.assertEqual(third["slots"]["dest_id"], "BRT_priok")
+            self.assertEqual(third["journey"]["origin"]["stop_id"],
+                             "KRL_tambun")
+            self.assertEqual(third["journey"]["dest"]["stop_id"],
+                             "BRT_priok")
             self.assertIn("Langkah perjalanan:", third["reply"])
             self.assertEqual(fourth["slots"]["origin_id"], "KRL_tambun")
             self.assertEqual(fourth["slots"]["dest_id"], "BRT_priok")

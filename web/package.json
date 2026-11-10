@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "test": "node --test --test-isolation=none src/route-map.test.js src/route-detail.test.js",
+    "test": "node --test --test-isolation=none src/route-map.test.js src/route-detail.test.js src/journey-prefill.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
