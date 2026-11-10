@@ -80,7 +80,7 @@ def model_name() -> str:
                     print(f"[llm] model default tak tersedia di akun — "
                           f"memakai {pick}", flush=True)
                 return pick
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, OSError) as e:
             print(f"[llm] gagal mengambil daftar model Groq: {e}", flush=True)
     return DEFAULT_MODEL
 
@@ -108,7 +108,7 @@ def chat(messages: list[dict], temperature: float = 0.15,
                       "temperature": temperature, "max_tokens": max_tokens},
                 timeout=TIMEOUT_SEC,
             )
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, OSError) as e:
             if attempt == 1:
                 time.sleep(1.5)
                 continue
@@ -156,7 +156,7 @@ def chat(messages: list[dict], temperature: float = 0.15,
                           "max_tokens": max_tokens},
                     timeout=TIMEOUT_SEC,
                 )
-            except httpx.HTTPError:
+            except (httpx.HTTPError, OSError):
                 raise LLMError("retry LLM gagal (jaringan); "
                                "pakai template")
             if resp2.status_code == 200:

@@ -36,6 +36,17 @@ CASES = [
     ("Multi: min transfer", "Bogor", "KRL", "Tangerang", "KRL", "min_transfers"),
 ]
 
+# Pasangan ini sengaja tersebar di beberapa sistem dan koridor. Setiap kasus
+# harus dapat dirutekan pada kedua arah; tidak ada pengecualian OD di engine.
+BIDIRECTIONAL_RAIL_CASES = [
+    ("MRT dua arah", "Lebak Bulus", "Bundaran HI", "MRT"),
+    ("LRT Jakarta dua arah", "Kelapa Gading", "Manggarai", "LRT"),
+    ("LRT Jabodebek Cibubur", "Dukuh Atas", "Harjamukti", "LRT"),
+    ("LRT Jabodebek Bekasi", "Dukuh Atas", "Jatimulya", "LRT"),
+    ("KRL Tangerang dua arah", "Duri", "Tangerang", "KRL"),
+    ("KRL Rangkas dua arah", "Tanah Abang", "Rangkasbitung", "KRL"),
+]
+
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -66,7 +77,42 @@ def main():
         print(f"[ OK ] {label:<22} {oq} -> {dq} | {pref:<13} | "
               f"±{net.fmt_time(res.time_sec):>8} | {res.transfers}x transfer | "
               f"Rp{res.fare:>6,} | moda: {'+'.join(modes)}")
-    print(f"\n{ n_ok}/{len(CASES)} kasus menghasilkan rute")
+
+    for label, aq, bq, mode in BIDIRECTIONAL_RAIL_CASES:
+        ac = match_stops(net, aq, 1, mode=mode)
+        bc = match_stops(net, bq, 1, mode=mode)
+        if not ac or not bc:
+            print(f"[FAIL ] {label}: titik tidak ditemukan ({aq}/{bq})")
+            continue
+        forward = net.route(ac[0][0], bc[0][0], "min_transfers")
+        reverse = net.route(bc[0][0], ac[0][0], "min_transfers")
+        if forward.found and reverse.found:
+            n_ok += 1
+            print(f"[ OK ] {label:<22} {aq} <-> {bq}")
+        else:
+            print(f"[FAIL ] {label}: forward={forward.found}, "
+                  f"reverse={reverse.found}")
+    # Regresi arah barat full-racket Cikarang: tanpa reverse proxy yang benar,
+    # Sudirman -> Duri memutar lewat Manggarai/Pasar Senen/Kampung Bandan.
+    west_o = match_stops(net, "Sudirman", 1, mode="KRL")
+    west_d = match_stops(net, "Duri", 1, mode="KRL")
+    west = (net.route(west_o[0][0], west_d[0][0], "tercepat")
+            if west_o and west_d else None)
+    west_names = []
+    if west and west.found:
+        west_names = [net.stops[west.segments[0]["from"]].name]
+        west_names.extend(net.stops[seg["to"]].name
+                          for seg in west.segments if seg["type"] == "ride")
+    expected_west = ["Sudirman", "BNI City", "Tanah Abang", "Duri"]
+    if west_names == expected_west:
+        n_ok += 1
+        print("[ OK ] KRL Cikarang barat    Sudirman -> Duri | "
+              "Sudirman > BNI City > Tanah Abang > Duri")
+    else:
+        print(f"[FAIL ] KRL Cikarang barat: urutan={west_names}")
+
+    total = len(CASES) + len(BIDIRECTIONAL_RAIL_CASES) + 1
+    print(f"\n{n_ok}/{total} kasus menghasilkan rute yang diharapkan")
 
 
 if __name__ == "__main__":

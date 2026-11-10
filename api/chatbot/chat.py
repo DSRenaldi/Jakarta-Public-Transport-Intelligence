@@ -29,9 +29,9 @@ from .cache_store import (NS_EXACT, NS_LOCK, NS_PREDICTION, NS_ROUTE,
                           TTL_RIDERSHIP_SEC, get_store)
 from .session import STORE
 
-PROMPT_VERSION = "chat-v8"
+PROMPT_VERSION = "chat-v9"
 RAG_CACHE_VERSION = "rag-v2"
-ROUTE_RESPONSE_VERSION = "route-v2"
+ROUTE_RESPONSE_VERSION = "route-v3"
 
 SYSTEM_PROMPT = """Kamu adalah asisten percakapan JPTI untuk transportasi umum Jabodetabek (MRT Jakarta, KRL Commuter Line, LRT Jakarta, LRT Jabodebek, TransJakarta).
 

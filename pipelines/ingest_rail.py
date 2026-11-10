@@ -564,7 +564,8 @@ def main():
     # =================================================================
     # MRT Line 1 (MRT_NS)
     # =================================================================
-    # bersihkan data MRT lama (idempoten; stop di-renumber 01..13, 30 Sep 2026)
+    # Bersihkan topologi MRT lama. Stop di-upsert, bukan dihapus, karena tabel
+    # fares menyimpan matriks tarif antar-stop dengan foreign key ke stops.
     cur.execute("""
         DELETE FROM route_stops WHERE route_id IN (
             SELECT route_id FROM routes WHERE line_id = 'MRT_NS')
@@ -576,7 +577,6 @@ def main():
     """)
     cur.execute("DELETE FROM routes WHERE line_id = 'MRT_NS'")
     cur.execute("DELETE FROM stop_name_history WHERE stop_id_internal LIKE 'MRT_%'")
-    cur.execute("DELETE FROM stops WHERE mode_id='MRT'")
     cur.execute("DELETE FROM line_geometries WHERE line_id = 'MRT_NS'")
 
     rel_lb = load_rel(9677669)  # Lebak Bulus -> Bundaran HI
@@ -712,7 +712,8 @@ def main():
     # =================================================================
     krl_code_by_name = KRL_CODE_BY_NAME
 
-    # bersihkan data KRL lama (idempoten; route_id bisa berubah antar versi)
+    # Bersihkan topologi KRL lama. Stop tetap di-upsert agar stasiun tambahan
+    # yang diingest terpisah (mis. JIS) dan referensi tabel lain tidak hilang.
     cur.execute("""
         DELETE FROM route_stops WHERE route_id IN (
             SELECT route_id FROM routes WHERE line_id LIKE 'KRL%')
@@ -723,23 +724,32 @@ def main():
            OR to_stop_id IN (SELECT stop_id_internal FROM stops WHERE mode_id='KRL')
     """)
     cur.execute("DELETE FROM routes WHERE line_id LIKE 'KRL%'")
-    cur.execute("DELETE FROM stops WHERE mode_id='KRL'")
     cur.execute("DELETE FROM line_geometries WHERE line_id LIKE 'KRL%'")
 
     def krl_stop_ids(rel: dict) -> list:
         """Urutan stop dari relasi; relasi loop (full racket) dipertahankan
-        sebagai siklus (stop pertama muncul lagi di akhir)."""
+        sebagai siklus, termasuk stasiun yang memang dilewati kembali.
+
+        Full racket Cikarang mengulang koridor timur setelah mengitari pusat
+        Jakarta. Menghapus semua nama duplikat membuat edge palsu langsung
+        Matraman->Cikarang dan menghilangkan urutan operasional sebenarnya.
+        """
         cand = rel_nodes(rel, nodes)
         names = [((n.get("tags") or {}).get("name") or "").strip() for n in cand]
         is_loop = len(names) >= 4 and names[0] and names[0] == names[-1]
         stop_ids = []
         seen = set()
-        for idx, (n, nm) in enumerate(zip(cand, names)):
+        previous_name = None
+        for n, nm in zip(cand, names):
             if not nm:
                 continue
-            last = idx == len(cand) - 1
-            if nm in seen and not (is_loop and last):
+            # Hindari duplikat berurutan akibat beberapa member/platform OSM,
+            # tetapi pertahankan kunjungan ulang yang terpisah pada loop.
+            if nm == previous_name:
                 continue
+            if not is_loop and nm in seen:
+                continue
+            previous_name = nm
             seen.add(nm)
             stop_id = f"KRL_{slug(nm)}"
             add_stop(stop_id, "KRL_COMMUTER", "KRL", nm, None, n, "SRC-COM-01")

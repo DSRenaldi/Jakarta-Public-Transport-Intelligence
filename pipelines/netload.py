@@ -24,6 +24,28 @@ def _norm_tj_name(name: str) -> str:
     return name
 
 
+def rail_edges_missing_reverse(rail_edges: list[tuple]) -> list[tuple]:
+    """Pilih edge rail yang belum mempunyai pasangan arah sebaliknya.
+
+    Pemeriksaan memakai identitas jalur dan pasangan stop, sehingga berlaku
+    sama untuk setiap koridor rail tanpa mengenali nama origin/destination.
+    Baris duplikat juga hanya menghasilkan satu reverse proxy.
+    """
+    existing = {
+        (line_id, a, b)
+        for (_route_id, line_id, _mode, a, b, _travel, _wait,
+             _fare, _time_method) in rail_edges
+    }
+    missing = []
+    for edge in rail_edges:
+        line_id, a, b = edge[1], edge[3], edge[4]
+        if (line_id, b, a) in existing:
+            continue
+        missing.append(edge)
+        existing.add((line_id, b, a))
+    return missing
+
+
 def load_network(conn=None) -> Network:
     own = conn is None
     if own:
@@ -159,6 +181,7 @@ def load_network(conn=None) -> Network:
         routes.setdefault(route_id, []).append(sid)
         route_meta[route_id] = (line_id, line_id)
 
+    rail_edges: list[tuple] = []
     for route_id, sids in routes.items():
         line_id = route_meta[route_id][0]
         mode = net.stops[sids[0]].mode if sids and sids[0] in net.stops else "BRT"
@@ -191,6 +214,25 @@ def load_network(conn=None) -> Network:
                                          route_id,
                                          time_method=time_method,
                                          source_id=net.line_source.get(line_id)))
+            if mode != "BRT":
+                rail_edges.append((route_id, line_id, mode, a, b, t, wait,
+                                   fare, time_method))
+
+    # Relasi OSM rail dapat tidak lengkap pada salah satu arah. Seluruh
+    # koridor rail MVP dianggap dua arah; lengkapi hanya edge yang belum
+    # mempunyai pasangan balik pada line yang sama. Tidak ada pemeriksaan
+    # nama stasiun, origin, destination, atau pasangan perjalanan tertentu.
+    n_rail_reverse = 0
+    for (route_id, line_id, mode, a, b, t, wait, fare,
+         time_method) in rail_edges_missing_reverse(rail_edges):
+        for sm in ALL_STATES:
+            net.add_edge(b, sm, Edge(
+                a, mode, t, wait, fare, mode, line_id,
+                f"{route_id}__reverse_proxy",
+                time_method=time_method,
+                source_id=net.line_source.get(line_id),
+            ))
+        n_rail_reverse += 1
 
     # ---------- transfers ----------
     cur.execute("""
@@ -256,6 +298,7 @@ def load_network(conn=None) -> Network:
     if own:
         conn.close()
     print(f"[netload] stops={len(net.stops)}, routes={len(routes)}, "
+          f"rail_reverse_proxy={n_rail_reverse}, "
           f"auto_transfer_antarmoda={n_auto}, transfer_AB={n_ab}", file=sys.stderr)
     return net
 

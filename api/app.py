@@ -33,7 +33,7 @@ from db import connect  # noqa: E402
 from netload import load_network  # noqa: E402
 from psycopg.rows import dict_row  # noqa: E402
 from rag_query import rag_retrieve  # noqa: E402
-from route_query import match_stops  # noqa: E402
+from route_query import ambiguous_stop_candidates, match_stops  # noqa: E402
 from routing import Network  # noqa: E402
 from chatbot import chat as chatbot_chat  # noqa: E402
 from chatbot import tools as chatbot_tools  # noqa: E402
@@ -249,10 +249,11 @@ def route(req: RouteRequest):
     # ambigu: tidak ada kecocokan eksak (skor 100) → kembalikan kandidat
     ambiguous = {}
     for tag, cands in (("origin", o_cands), ("dest", d_cands)):
-        if cands[0][1] < 100 and len(cands) > 1:
+        shown = ambiguous_stop_candidates(net, cands)
+        if shown:
             ambiguous[tag] = [
                 {**_stop_brief(net, sid), "score": score}
-                for sid, score in cands
+                for sid, score in shown
             ]
     if ambiguous:
         return {"status": "ambiguous", "candidates": ambiguous}

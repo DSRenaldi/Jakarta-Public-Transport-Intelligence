@@ -378,10 +378,21 @@ export default function Planner({ prefill, onPrefillConsumed }) {
   }
 
   const pickAmbiguous = (side, stop) => {
-    if (side === 'origin') setOrigin(stop); else setDest(stop)
+    const nextOrigin = side === 'origin' ? stop : origin
+    const nextDest = side === 'dest' ? stop : dest
+    const nextOriginMode = side === 'origin' ? stop.mode : originMode
+    const nextDestMode = side === 'dest' ? stop.mode : destMode
+    if (side === 'origin') {
+      setOrigin(stop)
+      setOriginMode(stop.mode)
+    } else {
+      setDest(stop)
+      setDestMode(stop.mode)
+    }
     const request = lastReq.current
     if (!request) return
-    run(side === 'origin' ? stop : request.origin, side === 'dest' ? stop : request.dest, request.prefer, request.depTime)
+    run(nextOrigin || request.origin, nextDest || request.dest,
+      request.prefer, request.depTime, nextOriginMode, nextDestMode)
   }
 
   return (

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "pipelines"), str(ROOT / "api")]
 
 from routing import Edge, Network, RouteResult, Stop  # noqa: E402
+from netload import rail_edges_missing_reverse  # noqa: E402
 from chatbot import chat, tools  # noqa: E402
 
 
@@ -139,6 +140,42 @@ class RouteGroundingTests(unittest.TestCase):
         self.assertIn("pergantian moda", reply)
         self.assertTrue(chat._route_reply_valid(reply, self.tool_out))
 
+    def test_router_counts_same_mode_line_change_and_skips_self_loop(self):
+        net = Network()
+        for sid in ("A", "B", "C", "D"):
+            net.add_stop(Stop(sid, "BRT", sid, -6.2, 106.8))
+        net.add_edge("A", None, Edge(
+            "B", "BRT", 60, 0, 3500, "BRT", "L1", "L1_out"))
+        net.add_edge("B", "BRT", Edge(
+            "C", "BRT", 60, 0, 3500, "BRT", "L2", "L2_out"))
+        net.add_edge("C", "BRT", Edge(
+            "C", "BRT", 60, 0, 0, "BRT", "L2", "L2_out"))
+        net.add_edge("C", "BRT", Edge(
+            "D", "BRT", 60, 0, 0, "BRT", "L2", "L2_out"))
+        result = net.route("A", "D", "tercepat")
+        self.assertTrue(result.found)
+        self.assertEqual(result.transfers, 1)
+        self.assertEqual(result.fare, 3500)
+        self.assertEqual([segment["from"] for segment in result.segments],
+                         ["A", "B", "C"])
+
+    def test_presenter_merges_route_patterns_on_the_same_line(self):
+        a = {"stop_id": "A", "name": "Sudirman", "mode": "KRL"}
+        b = {"stop_id": "B", "name": "Matraman", "mode": "KRL"}
+        c = {"stop_id": "C", "name": "Cikarang", "mode": "KRL"}
+        legs = tools._collapse_route_segments([
+            {"type": "ride", "mode": "KRL", "line_id": "KRL_C",
+             "route_id": "KRL_C_in", "from": a, "to": b,
+             "travel_sec": 840, "wait_sec": 300, "fare": 3000},
+            {"type": "ride", "mode": "KRL", "line_id": "KRL_C",
+             "route_id": "KRL_C_out", "from": b, "to": c,
+             "travel_sec": 3240, "wait_sec": 0, "fare": 0},
+        ])
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(legs[0]["from"]["name"], "Sudirman")
+        self.assertEqual(legs[0]["to"]["name"], "Cikarang")
+        self.assertEqual(legs[0]["edge_count"], 2)
+
     def test_route_reply_with_visible_reference_is_rejected(self):
         reply = chat.fallback_reply("route_planning", {}, self.tool_out)
         self.assertFalse(chat._route_reply_valid(reply + " [1]", self.tool_out))
@@ -168,7 +205,63 @@ class RouteGroundingTests(unittest.TestCase):
                  "preference": "tercepat"},
                 "dari Tambun ke Senayan", None, [], "data-v1",
             )
-        self.assertTrue(keys[0].startswith("route-v2|data-v1|"))
+        self.assertTrue(keys[0].startswith("route-v3|data-v1|"))
+
+    def test_exact_alias_across_modes_is_generic_for_both_endpoints(self):
+        cases = (
+            ("origin", "Central", "Terminal", "LRT", "MRT"),
+            ("dest", "Terminal", "Harbor", "KRL", "BRT"),
+        )
+        for endpoint, origin, dest, exact_mode, alias_mode in cases:
+            with self.subTest(endpoint=endpoint, query=(origin, dest)):
+                net = Network()
+                ambiguous_name = origin if endpoint == "origin" else dest
+                net.add_stop(Stop(
+                    f"{exact_mode}_exact", exact_mode, ambiguous_name,
+                    -6.20, 106.80,
+                ))
+                net.add_stop(Stop(
+                    f"{alias_mode}_alias", alias_mode,
+                    f"{ambiguous_name} District", -6.21, 106.81,
+                    aliases=[ambiguous_name],
+                ))
+                net.add_stop(Stop(
+                    "unique_terminal", "MRT", "Terminal",
+                    -6.22, 106.82,
+                ))
+
+                result = tools.plan_route(net, origin, dest)
+
+                self.assertEqual(result["status"], "ambiguous")
+                candidates = result["candidates"][endpoint]
+                self.assertEqual(
+                    {candidate["mode"] for candidate in candidates},
+                    {exact_mode, alias_mode},
+                )
+                self.assertEqual(
+                    {candidate["score"] for candidate in candidates},
+                    {90, 100},
+                )
+
+    def test_missing_reverse_rail_edges_is_line_agnostic(self):
+        def edge(route, line, mode, start, end):
+            return (route, line, mode, start, end, 60, 30, 3000,
+                    "distance_speed_dwell_proxy")
+
+        forward_a = edge("pattern_a", "LINE_ALPHA", "KRL", "A", "B")
+        duplicate_a = edge("pattern_a_2", "LINE_ALPHA", "KRL", "A", "B")
+        forward_b = edge("pattern_b", "LINE_BETA", "MRT", "X", "Y")
+        reverse_b = edge("pattern_b_rev", "LINE_BETA", "MRT", "Y", "X")
+        forward_c = edge("pattern_c", "LINE_GAMMA", "LRT", "M", "N")
+
+        missing = rail_edges_missing_reverse([
+            forward_a, duplicate_a, forward_b, reverse_b, forward_c,
+        ])
+
+        self.assertEqual(
+            {(item[1], item[3], item[4]) for item in missing},
+            {("LINE_ALPHA", "A", "B"), ("LINE_GAMMA", "M", "N")},
+        )
 
     def test_priok_spelling_includes_krl_and_cross_mode_exact_is_ambiguous(self):
         net = _fixture_priok_network()

@@ -90,6 +90,33 @@ def match_stops(net: Network, query: str, top: int = 5,
     return out
 
 
+def ambiguous_stop_candidates(net: Network,
+                              candidates: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    """Kembalikan kandidat yang masih membutuhkan pilihan pengguna.
+
+    Skor 100 berarti nama resmi/display cocok persis, sedangkan skor 90
+    berarti alias cocok persis. Alias kuat lintas moda tetap harus dianggap
+    ambigu karena selisih mekanis 10 poin tidak cukup untuk menyimpulkan
+    moda yang dimaksud pengguna. Aturan ini hanya membaca skor dan moda;
+    tidak ada nama titik atau pasangan origin-destination khusus.
+    """
+    if len(candidates) <= 1:
+        return []
+    best_score = candidates[0][1]
+    best = [item for item in candidates if item[1] == best_score]
+    if best_score < 100:
+        return candidates
+    if len(best) > 1:
+        return best
+
+    best_mode = net.stops[best[0][0]].mode
+    strong_cross_mode = [
+        item for item in candidates[1:]
+        if item[1] >= 90 and net.stops[item[0]].mode != best_mode
+    ]
+    return best + strong_cross_mode if strong_cross_mode else []
+
+
 def print_result(net: Network, res: RouteResult, origin_name: str, dest_name: str,
                  pref: str):
     if not res.found:

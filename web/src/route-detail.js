@@ -13,7 +13,6 @@ function sameRide(left, right) {
     && right?.type === 'ride'
     && left.mode === right.mode
     && left.line_id === right.line_id
-    && left.route_id === right.route_id
     && sameStop(left.to, right.from)
   )
 }
@@ -75,4 +74,3 @@ export function buildRouteDetailData(result) {
     crowd: grouped[index].crowd,
   }))
 }
-

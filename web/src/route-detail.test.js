@@ -76,3 +76,21 @@ test('perubahan jalur tetap menjadi leg terpisah meski modanya sama', () => {
   assert.equal(legs[1].from.name, 'Manggarai')
 })
 
+test('perubahan pola internal pada jalur yang sama bukan transit', () => {
+  const sudirman = stop('KRL_sudirman', 'Sudirman', 'KRL')
+  const matraman = stop('KRL_matraman', 'Matraman', 'KRL')
+  const cikarang = stop('KRL_cikarang', 'Cikarang', 'KRL')
+  const result = {
+    status: 'ok',
+    segments: [
+      { type: 'ride', mode: 'KRL', line_id: 'KRL_C', route_id: 'in', from: sudirman, to: matraman, travel_sec: 840, wait_sec: 300 },
+      { type: 'ride', mode: 'KRL', line_id: 'KRL_C', route_id: 'out', from: matraman, to: cikarang, travel_sec: 3240, wait_sec: 0 },
+    ],
+  }
+
+  const legs = buildRouteDetailData(result)
+  assert.equal(legs.length, 1)
+  assert.equal(legs[0].from.name, 'Sudirman')
+  assert.equal(legs[0].to.name, 'Cikarang')
+  assert.deepEqual(legs[0].passedStops.map((item) => item.name), ['Matraman', 'Cikarang'])
+})

@@ -10,7 +10,7 @@ Model (context.md §17):
       + fare_weight × fare
 
 Graf:
-- State = (stop_id_internal, mode_aktif|None)
+- State = (stop_id_internal, mode_aktif|None, line_aktif|None)
 - Edge rute = antarestasiun berurutan; waktu = GTFS stop_times (BRT, aktual
   jadwal) atau haversine/kecepatan + dwell (rail — label PROKSI)
 - Edge transfer = tabel transfers + auto-deteksi < 250 m antar moda
@@ -128,7 +128,10 @@ class Network:
         w_t, w_w, w_x, w_f = PREFERENCES[preference]
 
         NONE = None
-        start = (origin, NONE)
+        # State menyimpan layanan aktif, bukan hanya moda. Tanpa line_id,
+        # perpindahan koridor BRT dalam moda yang sama dianggap gratis dan
+        # rute dapat menghasilkan rangkaian transit yang tidak realistis.
+        start = (origin, NONE, NONE)
         # label: (cost, time, wait, fare, transfers)
         labels = {start: (0.0, 0.0, 0.0, 0, 0)}
         prev: dict[tuple, tuple] = {}
@@ -140,26 +143,35 @@ class Network:
             if state in done:
                 continue
             done.add(state)
-            s_id, mode = state
+            s_id, mode, line_id = state
             _, cur_time, cur_wait, cur_fare, cur_tr = labels[state]
-            for e in self.edges.get(state, []):
+            for e in self.edges.get((s_id, mode), []):
+                # Edge self-loop (mis. Damai -> Damai dari GTFS) tidak
+                # memindahkan penumpang dan tidak boleh masuk itinerary.
+                if e.to_stop == s_id:
+                    continue
                 if e.is_transfer:
                     n_tr = cur_tr + 1
                     n_cost = c + w_t * e.travel_sec + w_x * TRANSFER_PENALTY_SEC
                     n_time = cur_time + e.travel_sec
-                    n_wait, n_fare, n_mode = cur_wait, cur_fare, mode
+                    n_wait, n_fare = cur_wait, cur_fare
+                    n_mode, n_line = mode, line_id
                 else:
-                    boarding = (mode != e.mode)
+                    boarding = (mode, line_id) != (e.mode, e.line_id)
+                    mode_boarding = mode != e.mode
                     n_tr = cur_tr + (1 if (boarding and mode is not None) else 0)
                     n_wait = cur_wait + (e.wait_sec if boarding else 0.0)
-                    n_fare = cur_fare + (e.fare if boarding else 0)
+                    # Tarif MVP bersifat minimum per moda/tap. Berganti jalur
+                    # di dalam sistem KRL/BRT yang sama tidak boleh menagih
+                    # tarif minimum untuk kedua kalinya.
+                    n_fare = cur_fare + (e.fare if mode_boarding else 0)
                     n_cost = (c + w_t * e.travel_sec
                               + w_w * (e.wait_sec if boarding else 0.0)
                               + (w_x * TRANSFER_PENALTY_SEC
                                  if (boarding and mode is not None) else 0.0))
                     n_time = cur_time + e.travel_sec + (e.wait_sec if boarding else 0.0)
-                    n_mode = e.mode
-                nstate = (e.to_stop, n_mode)
+                    n_mode, n_line = e.mode, e.line_id
+                nstate = (e.to_stop, n_mode, n_line)
                 if nstate in done:
                     continue
                 old = labels.get(nstate)
@@ -168,19 +180,19 @@ class Network:
                     prev[nstate] = state
                     heapq.heappush(pq, (n_cost, nstate))
 
-        best_mode, best_lab = None, None
-        for (s_id, mode), lab in labels.items():
+        best_state, best_lab = None, None
+        for (s_id, mode, _line_id), lab in labels.items():
             if s_id != dest:
                 continue
             if best_lab is None or lab[0] < best_lab[0]:
-                best_mode, best_lab = mode, lab
+                best_state, best_lab = (s_id, mode, _line_id), lab
         if best_lab is None:
             return RouteResult(False, 0, 0, 0, [],
                                "tidak ada rute dari origin ke dest")
 
         # rekonstruksi path state
         path = []
-        cur = (dest, best_mode)
+        cur = best_state
         while cur is not None:
             path.append(cur)
             cur = prev.get(cur)
@@ -208,8 +220,14 @@ class Network:
         return RouteResult(True, best_lab[1], best_lab[3], best_lab[4], segs)
 
     def _find_edge(self, a: tuple, b: tuple) -> Edge | None:
-        for e in self.edges.get(a, []):
-            if e.to_stop == b[0] and e.to_mode == b[1]:
+        for e in self.edges.get((a[0], a[1]), []):
+            if e.to_stop != b[0]:
+                continue
+            # Transfer edges are indexed for every possible boarding mode;
+            # their ``to_mode`` is metadata for the edge, not a state change.
+            if e.is_transfer:
+                return e
+            if e.to_mode == b[1] and e.line_id == b[2]:
                 return e
         return None
 

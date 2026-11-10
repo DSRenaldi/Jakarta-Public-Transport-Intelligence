@@ -9,7 +9,7 @@ import re
 
 from db import connect
 import crowding as _crowding
-from route_query import match_stops
+from route_query import ambiguous_stop_candidates, match_stops
 from routing import Network
 from rag_query import rag_retrieve
 
@@ -88,7 +88,6 @@ def _collapse_route_segments(segments: list[dict]) -> list[dict]:
             continuous and previous["type"] == seg["type"] == "ride"
             and previous.get("mode") == seg.get("mode")
             and previous.get("line_id") == seg.get("line_id")
-            and previous.get("route_id") == seg.get("route_id")
         )
         same_walk = bool(
             continuous and previous["type"] == seg["type"] == "walk"
@@ -283,14 +282,8 @@ def plan_route(net: Network, origin: str, dest: str,
     ambiguous = {}
     resolved = {}
     for tag, cands in (("origin", o_cands), ("dest", d_cands)):
-        best_score = cands[0][1]
-        best_count = sum(1 for _sid, score in cands
-                         if score == best_score)
-        # Lebih dari satu kecocokan eksak lintas moda tetap ambigu. Untuk
-        # pencarian fuzzy, tampilkan kandidat terbaik agar pengguna memilih.
-        if len(cands) > 1 and (best_score < 100 or best_count > 1):
-            shown = ([item for item in cands if item[1] == best_score]
-                     if best_score == 100 else cands)
+        shown = ambiguous_stop_candidates(net, cands)
+        if shown:
             ambiguous[tag] = [
                 {**stop_brief(net, sid), "score": score}
                 for sid, score in shown

@@ -2,8 +2,10 @@
 """
 Bangun tabel `transfers` untuk hub antarmoda (rail <-> BRT).
 
-Strategi: tiap stop rail (MRT/LRT/KRL), cari stop non-rail terdekat
-< 600 m; buat row transfer dengan walking_time_sec = ceil(jarak/1.3 m/s).
+Strategi: tiap stop rail (MRT/LRT/KRL), cari seluruh stop non-rail
+terdekat < 600 m; buat row transfer dengan walking_time_sec =
+ceil(jarak/1.3 m/s). Beberapa kandidat diperlukan karena halte BRT yang
+menjadi akses rute dapat berbeda dari halte terdekat secara geometris.
 Hasil dicetak utk review; row lama dihapus dulu (idempoten).
 """
 import math
@@ -36,7 +38,6 @@ def main():
               AND geometry IS NOT NULL
               AND ST_Distance(a.geometry::geography, geometry::geography) <= %s
             ORDER BY d
-            LIMIT 1
         ) b ON true
         WHERE a.mode_id IN ('MRT','LRT','KRL')
           AND a.geometry IS NOT NULL
@@ -49,23 +50,26 @@ def main():
     # pertahankan row kurasi manual bila ada
     cur.execute("DELETE FROM transfers WHERE type='intermodal' AND notes LIKE 'auto:%'")
     n = 0
-    best_per_pair: dict[tuple, tuple] = {}  # (a_id, b_mode) -> (m, row)
+    best_per_pair: dict[tuple, tuple] = {}  # (a_id, b_mode, b_id) -> (m, row)
     for r in rows:
         a_id, a_mode, b_mode = r[0], r[2], r[5]
-        key = (a_id, b_mode)
+        key = (a_id, b_mode, r[3])
         if key not in best_per_pair or r[6] < best_per_pair[key][0]:
             best_per_pair[key] = (float(r[6]), r)
-    for (a_id, b_mode), (m, r) in best_per_pair.items():
+    for (_a_id, _b_mode, _b_id), (m, r) in best_per_pair.items():
         a_id_, a_name, a_mode_, b_id, b_name, _b_mode, _m = r
         w = max(60, int(math.ceil(m / WALK_MPS)))
-        cur.execute("""
-            INSERT INTO transfers(from_stop_id, to_stop_id, walking_time_sec,
-                type, notes)
-            VALUES (%s,%s,%s,'intermodal',%s)
-            ON CONFLICT (from_stop_id, to_stop_id) DO UPDATE SET
-                walking_time_sec=EXCLUDED.walking_time_sec
-        """, (a_id_, b_id, w, f"auto: {a_name} <-> {b_name} ({m:.0f} m)"))
-        n += 1
+        note = f"auto: {a_name} <-> {b_name} ({m:.0f} m)"
+        for from_id, to_id in ((a_id_, b_id), (b_id, a_id_)):
+            cur.execute("""
+                INSERT INTO transfers(from_stop_id, to_stop_id,
+                    walking_time_sec, type, notes)
+                VALUES (%s,%s,%s,'intermodal',%s)
+                ON CONFLICT (from_stop_id, to_stop_id) DO UPDATE SET
+                    walking_time_sec=EXCLUDED.walking_time_sec,
+                    notes=EXCLUDED.notes
+            """, (from_id, to_id, w, note))
+            n += 1
         print(f"  {a_id_:<16} [{a_mode_}] <-> {b_id:<16} [{b_mode}]  {m:6.0f} m  ~{w // 60} mnt")
     conn.commit()
     cur.execute("SELECT COUNT(*) FROM transfers")
