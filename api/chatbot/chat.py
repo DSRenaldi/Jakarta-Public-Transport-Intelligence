@@ -1097,6 +1097,34 @@ def _preference_from_text(question: str) -> str | None:
     return None
 
 
+def _direct_only_requested(question: str) -> bool:
+    """True bila pengguna meminta perjalanan tanpa perpindahan/transit."""
+    q = question.casefold()
+    return bool(re.search(
+        r"\b(?:tanpa|tidak\s+(?:ingin|mau|pakai|pake|perlu))\s+"
+        r"(?:transit|transfer)\b|"
+        r"\b(?:langsung|direct)\b.*\b(?:ke|sampai|menuju)\b|"
+        r"\b(?:ke|sampai|menuju)\b.*\b(?:langsung|direct)\b",
+        q,
+    ))
+
+
+def _direct_route_reply(res: dict) -> str:
+    """Jawaban eksplisit saat rute tanpa transit tidak tersedia."""
+    origin = res["origin"].get("display") or res["origin"]["name"]
+    destination = res["dest"].get("display") or res["dest"]["name"]
+    metrics = res.get("route_metrics") or {}
+    changes = metrics.get("service_change_count", res.get("transfers", 0))
+    if not changes:
+        return _route_reply(res)
+    return (
+        f"Tidak ada rute langsung tanpa transit dari {origin} ke "
+        f"{destination}. Rute dengan perpindahan paling sedikit memerlukan "
+        f"{changes} kali transit, termasuk pergantian moda.\n"
+        + _route_reply(res)
+    )
+
+
 def _contextual_route_slots(question: str,
                             route_context: dict | None) -> dict | None:
     """Pulihkan OD rute untuk follow-up singkat setelah rute berhasil."""
@@ -1228,6 +1256,7 @@ def handle_chat(message: str, session_id: str | None, net,
         contextual_slots = _contextual_route_slots(
             question, STORE.route_context(sid))
     slots = contextual_slots or {}
+    direct_requested = _direct_only_requested(question)
 
     key = _exact_key(question, data_version, mem["version"])
     store = get_store()
@@ -1262,7 +1291,10 @@ def handle_chat(message: str, session_id: str | None, net,
 
     # Follow-up bergantung pada state session, sehingga tidak boleh memakai
     # cache jawaban global untuk teks pendek seperti "4" atau "yang termurah".
-    cached = store.get(key) if contextual_slots is None else None
+    # Jangan gunakan jawaban lama untuk permintaan direct; jawaban sebelum
+    # perbaikan dapat mengabaikan kata "tanpa transit".
+    cached = (store.get(key)
+              if contextual_slots is None and not direct_requested else None)
     if cached is not None:
         return _hit(cached)
 
@@ -1271,9 +1303,9 @@ def handle_chat(message: str, session_id: str | None, net,
     # stampede saat banyak pertanyaan identik datang bersamaan).
     lock_key = f"{NS_LOCK}:exact:{key}"
     lock_taken = (store.acquire_lock(lock_key)
-                  if contextual_slots is None else False)
+                  if contextual_slots is None and not direct_requested else False)
     deadline = time.time() + 15
-    while (contextual_slots is None and not lock_taken
+    while (contextual_slots is None and not direct_requested and not lock_taken
            and time.time() < deadline):
         time.sleep(0.25)
         cached = store.get(key)
@@ -1292,7 +1324,8 @@ def handle_chat(message: str, session_id: str | None, net,
         # deterministik (regex) sebagai hint; aman karena salah ketik
         # hanya menghasilkan miss (hitung ulang), bukan salah hit.
         # Jawaban personal (memori pengguna §35.9) TIDAK melewati cache.
-        if contextual_slots is None and intent != "other" and not personal:
+        if (contextual_slots is None and not direct_requested
+                and intent != "other" and not personal):
             hint = _regex_slots(intent, question)
             sem = semantic_cache.lookup(
                 intent, question, hint, data_version, PROMPT_VERSION)
@@ -1313,6 +1346,13 @@ def handle_chat(message: str, session_id: str | None, net,
         if contextual_slots is None:
             slots = (extract_slots(intent, question, history)
                      if intent != "other" else {})
+        direct_only = (intent == "route_planning" and direct_requested)
+        if direct_only:
+            # Mesin routing belum memiliki preferensi "direct" terpisah.
+            # Cari rute dengan perpindahan minimum, lalu jelaskan secara
+            # eksplisit bila hasilnya tetap memerlukan transit.
+            slots["preference"] = "min_transfers"
+            slots["direct_only"] = True
         # Memori persistent (§35.7): preferensi optimasi tersimpan jadi
         # preferensi default bila pengguna tidak menyebutkannya
         if intent == "route_planning" and not slots.get("preference"):
@@ -1341,9 +1381,22 @@ def handle_chat(message: str, session_id: str | None, net,
                 STORE.set_pending_route(sid, None)
 
         llm_used = False
+        direct_unavailable = bool(
+            direct_only
+            and tool_out.get("tool") == "route"
+            and (tool_out.get("result") or {}).get("status") == "ok"
+            and ((tool_out.get("result") or {}).get("route_metrics") or {})
+                .get("service_change_count",
+                     (tool_out.get("result") or {}).get("transfers", 0)) > 0
+        )
         if (tool_out.get("tool") == "route" and
                 (tool_out.get("result") or {}).get("status") == "ambiguous"):
             reply = fallback_reply(intent, slots, tool_out)
+        elif direct_unavailable:
+            # Jangan serahkan penjelasan ketersediaan rute direct ke LLM:
+            # hasil ini harus konsisten dan tidak boleh terdengar seperti
+            # chatbot mengabaikan permintaan pengguna.
+            reply = _direct_route_reply(tool_out["result"])
         elif llm.configured():
             ctx = _build_context(tool_out, slots)
             hist = "\n".join(f"{'P' if h['role'] == 'user' else 'J'}: "

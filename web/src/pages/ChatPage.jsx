@@ -59,7 +59,7 @@ function Rich({ text }) {
   })}</>
 }
 
-export default function ChatPage() {
+export default function ChatPage({ onOpenJourney }) {
   const [messages, setMessages] = useState(loadChatMessages)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -121,6 +121,19 @@ export default function ChatPage() {
                   {message.role === 'user' ? message.text : <Rich text={message.text} />}
                   {message.role === 'bot' && message.intent && <p className="chat-meta">{INTENT_LABEL[message.intent] || message.intent}{message.data_label ? ` · data ${message.data_label}` : ''}{message.latency_ms != null ? ` · ${(message.latency_ms / 1000).toFixed(1)} detik` : ''}{message.cache_status === 'exact_hit' ? ' · dari cache' : message.cache_status === 'semantic_hit' ? ' · dari pertanyaan serupa' : ''}</p>}
                   {message.role === 'bot' && message.sources?.length > 0 && <div className="chat-sources">{message.sources.map((source) => <a key={source.n} className="chat-src" href={source.url || undefined} target={source.url ? '_blank' : undefined} rel="noopener" title={`${source.title || ''} — ${source.source_id || ''}`}>[{source.n}] {source.title}{source.pages?.[0] ? ` · halaman ${source.pages[0]}` : ''}{source.url ? ' ↗' : ''}</a>)}</div>}
+                  {message.role === 'bot' && message.intent === 'route_planning' && message.slots?.origin && message.slots?.dest && onOpenJourney && (
+                    <button
+                      type="button"
+                      className="chat-route-action"
+                      onClick={() => onOpenJourney({
+                        origin: message.slots.origin,
+                        dest: message.slots.dest,
+                        prefer: message.slots.preference || 'tercepat',
+                      })}
+                    >
+                      <span aria-hidden>↗</span> Buka rute di Perjalanan
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

@@ -297,7 +297,16 @@ function JourneyMap({ result }) {
   )
 }
 
-export default function Planner() {
+function pickPrefillCandidate(response, label) {
+  const candidates = response?.candidates || []
+  const wanted = label.trim().toLocaleLowerCase('id-ID')
+  return candidates.find((candidate) => [candidate.display, candidate.name]
+    .filter(Boolean)
+    .some((name) => name.trim().toLocaleLowerCase('id-ID') === wanted))
+    || (candidates.length === 1 ? candidates[0] : null)
+}
+
+export default function Planner({ prefill, onPrefillConsumed }) {
   const [origin, setOrigin] = useState(null)
   const [dest, setDest] = useState(null)
   const [originMode, setOriginMode] = useState(null)
@@ -310,7 +319,7 @@ export default function Planner() {
   const lastReq = useRef(null)
   const routeLegs = useMemo(() => buildRouteDetailData(result), [result])
 
-  const run = async (nextOrigin = origin, nextDest = dest, nextPrefer = prefer, nextTime = depTime) => {
+  const run = async (nextOrigin = origin, nextDest = dest, nextPrefer = prefer, nextTime = depTime, nextOriginMode = originMode, nextDestMode = destMode) => {
     if (!nextOrigin || !nextDest) return
     setBusy(true)
     setError(null)
@@ -318,7 +327,7 @@ export default function Planner() {
     try {
       const response = await findRoute({
         origin: dispName(nextOrigin), dest: dispName(nextDest), prefer: nextPrefer,
-        origin_mode: originMode, dest_mode: destMode, dep_time: nextTime,
+        origin_mode: nextOriginMode, dest_mode: nextDestMode, dep_time: nextTime,
       })
       setResult(response)
     } catch (requestError) {
@@ -326,6 +335,41 @@ export default function Planner() {
       setResult(null)
     } finally { setBusy(false) }
   }
+
+  useEffect(() => {
+    if (!prefill?.origin || !prefill?.dest) return undefined
+    let cancelled = false
+    const loadPrefill = async () => {
+      setError(null)
+      try {
+        const [originResponse, destResponse] = await Promise.all([
+          searchStops(prefill.origin, undefined, 7),
+          searchStops(prefill.dest, undefined, 7),
+        ])
+        if (cancelled) return
+        const nextOrigin = pickPrefillCandidate(originResponse, prefill.origin)
+        const nextDest = pickPrefillCandidate(destResponse, prefill.dest)
+        if (!nextOrigin || !nextDest) {
+          setError('Titik rute dari Asisten belum dapat dipetakan. Pilih ulang titik di halaman Perjalanan.')
+          return
+        }
+        const nextOriginMode = nextOrigin.mode || null
+        const nextDestMode = nextDest.mode || null
+        setOrigin(nextOrigin)
+        setDest(nextDest)
+        setOriginMode(nextOriginMode)
+        setDestMode(nextDestMode)
+        setPrefer(prefill.prefer || 'tercepat')
+        await run(nextOrigin, nextDest, prefill.prefer || 'tercepat', prefill.depTime || '', nextOriginMode, nextDestMode)
+      } catch (requestError) {
+        if (!cancelled) setError(requestError.message)
+      } finally {
+        if (!cancelled) onPrefillConsumed?.()
+      }
+    }
+    loadPrefill()
+    return () => { cancelled = true }
+  }, [prefill, onPrefillConsumed])
 
   const swap = () => {
     setOrigin(dest); setDest(origin)

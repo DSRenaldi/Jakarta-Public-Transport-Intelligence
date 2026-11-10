@@ -130,6 +130,15 @@ class RouteGroundingTests(unittest.TestCase):
         self.assertTrue(chat._route_reply_valid(reply, self.tool_out))
         self.assertEqual(chat._collect_sources(self.tool_out), [])
 
+    def test_direct_request_explains_when_transfer_is_unavoidable(self):
+        self.assertTrue(chat._direct_only_requested(
+            "saya tidak ingin transit, apakah ada rute langsung ke Tambun"))
+        reply = chat._direct_route_reply(self.tool_out["result"])
+        self.assertIn("Tidak ada rute langsung tanpa transit", reply)
+        self.assertIn("1 kali transit", reply)
+        self.assertIn("pergantian moda", reply)
+        self.assertTrue(chat._route_reply_valid(reply, self.tool_out))
+
     def test_route_reply_with_visible_reference_is_rejected(self):
         reply = chat.fallback_reply("route_planning", {}, self.tool_out)
         self.assertFalse(chat._route_reply_valid(reply + " [1]", self.tool_out))

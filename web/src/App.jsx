@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Planner from './pages/Planner.jsx'
 import ChatPage from './pages/ChatPage.jsx'
 import Dashboard from './pages/Dashboard.jsx'
@@ -95,6 +95,8 @@ function DataDrawer({ open, onClose, health }) {
 
 export default function App() {
   const [tab, setTab] = useState(getInitialTab)
+  const [journeyPrefill, setJourneyPrefill] = useState(null)
+  const consumeJourneyPrefill = useCallback(() => setJourneyPrefill(null), [])
   const [health, setHealth] = useState(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -110,8 +112,18 @@ export default function App() {
     try { localStorage.setItem(ACTIVE_TAB_KEY, tabId) } catch { /* private mode */ }
   }
 
+  const openJourney = (prefill) => {
+    setJourneyPrefill(prefill)
+    selectTab('rute')
+  }
+
   const active = SECTIONS.find((section) => section.id === tab)
   const ActivePage = active.component
+  const pageProps = active.id === 'rute'
+    ? { prefill: journeyPrefill, onPrefillConsumed: consumeJourneyPrefill }
+    : active.id === 'chat'
+      ? { onOpenJourney: openJourney }
+      : {}
 
   return (
     <div className="app-shell">
@@ -139,7 +151,7 @@ export default function App() {
           <div><span className="eyebrow">{active.eyebrow}</span><h1>{active.title}</h1><p>{active.description}</p></div>
           <button className="data-info-button" onClick={() => setDrawerOpen(true)}><span className="info-glyph">i</span>Tentang data</button>
         </header>
-        <main className={`main-content page-${tab}`}><ActivePage /></main>
+        <main className={`main-content page-${tab}`}><ActivePage {...pageProps} /></main>
       </div>
 
       <nav className="mobile-nav" aria-label="Navigasi mobile">
