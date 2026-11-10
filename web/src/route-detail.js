@@ -7,12 +7,17 @@ function sameStop(left, right) {
   return Boolean(stopKey(left) && stopKey(left) === stopKey(right))
 }
 
+function sameJourneyLeg(left, right) {
+  return (left?.journey_leg || null) === (right?.journey_leg || null)
+}
+
 function sameRide(left, right) {
   return Boolean(
     left?.type === 'ride'
     && right?.type === 'ride'
     && left.mode === right.mode
     && left.line_id === right.line_id
+    && sameJourneyLeg(left, right)
     && sameStop(left.to, right.from)
   )
 }
@@ -42,7 +47,7 @@ function groupSegments(segments = [], crowdingSegments = []) {
       continue
     }
 
-    if (previous?.type === 'walk' && segment.type === 'walk' && sameStop(previous.to, segment.from)) {
+    if (previous?.type === 'walk' && segment.type === 'walk' && sameJourneyLeg(previous, segment) && sameStop(previous.to, segment.from)) {
       previous.via.push(previous.to, ...segment.via)
       previous.to = segment.to
       previous.walk_sec = (previous.walk_sec || 0) + (segment.walk_sec || 0)

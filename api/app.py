@@ -139,6 +139,12 @@ def _stop_brief(net: Network, sid: str) -> dict:
 
 # ---------- models ----------
 
+class RouteWaypoint(BaseModel):
+    name: str = Field(min_length=1)
+    stop_id: str | None = None
+    mode: str | None = None
+
+
 class RouteRequest(BaseModel):
     origin: str = Field(min_length=1)
     dest: str = Field(min_length=1)
@@ -147,6 +153,7 @@ class RouteRequest(BaseModel):
     prefer: str = "tercepat"
     origin_mode: str | None = None
     dest_mode: str | None = None
+    waypoints: list[RouteWaypoint] = Field(default_factory=list, max_length=8)
     top: int = 5
     dep_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -254,13 +261,21 @@ def route(req: RouteRequest):
             raise HTTPException(404, f"{label} tidak ditemukan: '{text}'")
         return cands
 
-    o_cands = _resolve("Origin", req.origin, req.origin_mode, req.origin_id)
-    d_cands = _resolve("Destinasi", req.dest, req.dest_mode, req.dest_id)
+    requested_points = [
+        ("origin", "Origin", req.origin, req.origin_mode, req.origin_id),
+        *[(f"point_{index}", f"Titik antara ke-{index}", waypoint.name,
+           waypoint.mode, waypoint.stop_id)
+          for index, waypoint in enumerate(req.waypoints, start=1)],
+        ("dest", "Destinasi", req.dest, req.dest_mode, req.dest_id),
+    ]
+    resolved_points = [
+        (tag, _resolve(label, text, mode, stop_id), stop_id)
+        for tag, label, text, mode, stop_id in requested_points
+    ]
 
     # ambigu: tidak ada kecocokan eksak (skor 100) → kembalikan kandidat
     ambiguous = {}
-    for tag, cands in (("origin", o_cands), ("dest", d_cands)):
-        stop_id = req.origin_id if tag == "origin" else req.dest_id
+    for tag, cands, stop_id in resolved_points:
         shown = [] if stop_id else ambiguous_stop_candidates(net, cands)
         if shown:
             ambiguous[tag] = [
@@ -270,16 +285,27 @@ def route(req: RouteRequest):
     if ambiguous:
         return {"status": "ambiguous", "candidates": ambiguous}
 
-    origin, dest = o_cands[0][0], d_cands[0][0]
-    res = net.route(origin, dest, req.prefer)
-    if not res.found:
-        return {"status": "no_route", "message": res.message,
-                "origin": _stop_brief(net, origin),
-                "dest": _stop_brief(net, dest)}
+    stop_ids = [cands[0][0] for _tag, cands, _stop_id in resolved_points]
+    origin, dest = stop_ids[0], stop_ids[-1]
     dep = _parse_dep_time(req.dep_time)
-    crowd_segs = crowding_model.annotate_route_segments(res.segments, dep)
-    payload = chatbot_tools.serialize_route_result(
-        net, res, req.prefer, origin, dest)
+    if len(stop_ids) > 2:
+        payload = chatbot_tools.plan_journey_ids(net, stop_ids, req.prefer)
+        if payload.get("status") != "ok":
+            return payload
+        crowd_input = [
+            {**segment, "line": segment.get("line_id")}
+            for segment in payload["segments"]
+        ]
+        crowd_segs = crowding_model.annotate_route_segments(crowd_input, dep)
+    else:
+        res = net.route(origin, dest, req.prefer)
+        if not res.found:
+            return {"status": "no_route", "message": res.message,
+                    "origin": _stop_brief(net, origin),
+                    "dest": _stop_brief(net, dest)}
+        crowd_segs = crowding_model.annotate_route_segments(res.segments, dep)
+        payload = chatbot_tools.serialize_route_result(
+            net, res, req.prefer, origin, dest)
     payload.update({
         "crowding": {
             "model_version": crowding_model.MODEL_VERSION,

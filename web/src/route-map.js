@@ -7,6 +7,10 @@ function sameStop(left, right) {
   return Boolean(stopKey(left) && stopKey(left) === stopKey(right))
 }
 
+function sameJourneyLeg(left, right) {
+  return (left?.journey_leg || null) === (right?.journey_leg || null)
+}
+
 function sameRide(left, right) {
   return Boolean(
     left?.type === 'ride'
@@ -14,6 +18,7 @@ function sameRide(left, right) {
     && left.mode === right.mode
     && left.line_id === right.line_id
     && left.route_id === right.route_id
+    && sameJourneyLeg(left, right)
     && sameStop(left.to, right.from)
   )
 }
@@ -29,7 +34,7 @@ function collapseSegments(segments = []) {
       previous.wait_sec = (previous.wait_sec || 0) + (segment.wait_sec || 0)
       continue
     }
-    if (previous?.type === 'walk' && segment.type === 'walk' && sameStop(previous.to, segment.from)) {
+    if (previous?.type === 'walk' && segment.type === 'walk' && sameJourneyLeg(previous, segment) && sameStop(previous.to, segment.from)) {
       previous.via.push(previous.to, ...(segment.via || []))
       previous.to = segment.to
       previous.walk_sec = (previous.walk_sec || 0) + (segment.walk_sec || 0)
@@ -84,6 +89,7 @@ export function buildRouteMapData(result) {
     .filter((index) => index >= 0)
   const transfers = []
   const waypointCandidates = []
+  let transferNumberCounter = 0
 
   for (const leg of legs) {
     if (leg.type === 'walk') waypointCandidates.push(...(leg.via || []))
@@ -94,10 +100,11 @@ export function buildRouteMapData(result) {
     const afterIndex = rideIndexes[ridePosition + 1]
     const before = legs[beforeIndex]
     const after = legs[afterIndex]
+    if (!sameJourneyLeg(before, after)) continue
     const between = legs.slice(beforeIndex + 1, afterIndex)
     const walkingLegs = between.filter((leg) => leg.type === 'walk')
     const change = changeKind(before, after)
-    const transferNumber = ridePosition + 1
+    const transferNumber = ++transferNumberCounter
     const exitStop = before.to
     const entryStop = after.from
     const walkingSeconds = walkingLegs.reduce((total, leg) => total + (leg.walk_sec || 0), 0)
@@ -142,12 +149,14 @@ export function buildRouteMapData(result) {
   const transferKeys = new Set(transfers.map((point) => stopKey(point.stop)))
   transferKeys.add(stopKey(result?.origin))
   transferKeys.add(stopKey(result?.dest))
+  const endpointKeys = new Set([stopKey(result?.origin), stopKey(result?.dest)])
+  const journeyWaypoints = uniqueStops((result?.points || []).slice(1, -1), endpointKeys)
 
   return {
     legs,
     transfers,
     waypoints: uniqueStops(waypointCandidates, transferKeys),
-    transferCount: Math.max(0, rideIndexes.length - 1),
+    journeyWaypoints,
+    transferCount: new Set(transfers.map((point) => point.event)).size,
   }
 }
-

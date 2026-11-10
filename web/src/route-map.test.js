@@ -73,3 +73,21 @@ test('logika tidak bergantung pada pasangan moda tertentu', () => {
   assert.deepEqual(mapData.transfers.map((point) => point.label), ['1A', '1B', '2A', '2B'])
   assert.deepEqual(mapData.transfers.map((point) => point.kind), ['mode', 'mode', 'mode', 'mode'])
 })
+
+test('titik tujuan antara bukan transit palsu antar perjalanan', () => {
+  const depok = stop('KRL_depok', 'Depok', 'KRL', -6.4)
+  const senayan = stop('KRL_senayan', 'Senayan', 'KRL', -6.2)
+  const tambun = stop('KRL_tambun', 'Tambun', 'KRL', -6.1)
+  const result = {
+    origin: depok,
+    dest: tambun,
+    points: [depok, senayan, tambun],
+    itinerary: [
+      { type: 'ride', mode: 'KRL', line_id: 'KRL_A', route_id: 'out', from: depok, to: senayan, journey_leg: 1 },
+      { type: 'ride', mode: 'KRL', line_id: 'KRL_A', route_id: 'out', from: senayan, to: tambun, journey_leg: 2 },
+    ],
+  }
+  const mapData = buildRouteMapData(result)
+  assert.equal(mapData.transferCount, 0)
+  assert.deepEqual(mapData.journeyWaypoints.map((point) => point.stop_id), ['KRL_senayan'])
+})

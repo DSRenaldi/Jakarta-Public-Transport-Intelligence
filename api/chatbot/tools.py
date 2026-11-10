@@ -318,6 +318,130 @@ def plan_route_ids(net: Network, origin_id: str, dest_id: str,
     return serialize_route_result(net, res, prefer, origin_id, dest_id)
 
 
+def plan_journey(net: Network, points: list, prefer: str = "tercepat",
+                 top: int = 5) -> dict:
+    """Rutekan daftar titik berurutan tanpa membuang titik antara.
+
+    Setiap elemen boleh berupa teks atau stop terstruktur yang sudah membawa
+    ``stop_id``. Kandidat ambigu dikembalikan per indeks agar klarifikasi
+    pengguna dapat dilanjutkan tanpa mencocokkan ulang titik lain.
+    """
+    if len(points or []) < 2:
+        return {"status": "need_od"}
+
+    resolved: dict[str, dict] = {}
+    ambiguous: dict[str, list[dict]] = {}
+    for index, point in enumerate(points):
+        tag = f"point_{index}"
+        if isinstance(point, dict) and point.get("stop_id"):
+            stop_id = point["stop_id"]
+            if stop_id not in net.stops:
+                return {"status": "not_found", "where": tag,
+                        "text": stop_id, "point_index": index}
+            resolved[tag] = stop_brief(net, stop_id)
+            continue
+
+        text = (point.get("name") if isinstance(point, dict) else point) or ""
+        candidates = match_stops(net, str(text), top=top)
+        if not candidates:
+            return {"status": "not_found", "where": tag,
+                    "text": text, "point_index": index}
+        shown = ambiguous_stop_candidates(net, candidates)
+        if shown:
+            ambiguous[tag] = [
+                {**stop_brief(net, stop_id), "score": score,
+                 "point_index": index}
+                for stop_id, score in shown
+            ]
+        else:
+            resolved[tag] = stop_brief(net, candidates[0][0])
+
+    if ambiguous:
+        return {"status": "ambiguous", "candidates": ambiguous,
+                "resolved": resolved, "point_count": len(points)}
+    stop_ids = [resolved[f"point_{index}"]["stop_id"]
+                for index in range(len(points))]
+    return plan_journey_ids(net, stop_ids, prefer)
+
+
+def plan_journey_ids(net: Network, stop_ids: list[str],
+                     prefer: str = "tercepat") -> dict:
+    """Gabungkan rute setiap pasangan titik menjadi satu perjalanan kanonik."""
+    if len(stop_ids or []) < 2:
+        return {"status": "need_od"}
+    for index, stop_id in enumerate(stop_ids):
+        if stop_id not in net.stops:
+            return {"status": "not_found", "where": f"point_{index}",
+                    "text": stop_id, "point_index": index}
+
+    routes = []
+    all_segments = []
+    all_legs = []
+    for leg_index, (origin_id, dest_id) in enumerate(
+            zip(stop_ids, stop_ids[1:]), start=1):
+        route = plan_route_ids(net, origin_id, dest_id, prefer)
+        if route.get("status") != "ok":
+            return {**route, "failed_journey_leg": leg_index,
+                    "points": [stop_brief(net, sid) for sid in stop_ids]}
+        routes.append(route)
+        all_segments.extend({**segment, "journey_leg": leg_index}
+                            for segment in route["segments"])
+        all_legs.extend({**leg, "journey_leg": leg_index}
+                        for leg in route["itinerary"])
+
+    sources = _route_sources(net, all_legs)
+    itinerary = _build_itinerary(all_legs, sources)
+    metrics = {
+        key: sum((route.get("route_metrics") or {}).get(key, 0)
+                 for route in routes)
+        for key in ("boarding_count", "service_change_count",
+                    "mode_change_count", "walking_transfer_count",
+                    "routing_transfer_score")
+    }
+    points = [stop_brief(net, stop_id) for stop_id in stop_ids]
+    time_sec = sum(route["time_sec"] for route in routes)
+    fare = sum(route["fare"] for route in routes)
+    return {
+        "status": "ok",
+        "preference": prefer,
+        "origin": points[0],
+        "dest": points[-1],
+        "points": points,
+        "waypoints": points[1:-1],
+        "journey_legs": [
+            {
+                "index": index,
+                "origin": route["origin"],
+                "dest": route["dest"],
+                "time_sec": route["time_sec"],
+                "fare": route["fare"],
+                "route_metrics": route["route_metrics"],
+            }
+            for index, route in enumerate(routes, start=1)
+        ],
+        "time_sec": time_sec,
+        "time_fmt": Network.fmt_time(time_sec),
+        "time_display": _duration_fmt(time_sec),
+        "fare": fare,
+        "transfers": metrics["service_change_count"],
+        "route_metrics": metrics,
+        "segments": all_segments,
+        "itinerary": itinerary,
+        "sources": sources,
+        "data_label": "proksi",
+        "fare_basis": "jumlah estimasi tarif minimum setiap perjalanan",
+        "time_basis": (
+            "Waktu merupakan jumlah estimasi setiap perjalanan berurutan; "
+            "BRT memakai rata-rata jadwal GTFS bila tersedia dan rail "
+            "memakai jarak, kecepatan rata-rata, dwell, serta waktu tunggu."
+        ),
+        "limitations": (
+            "Belum memperhitungkan waktu berhenti di titik antara, gangguan, "
+            "dan kondisi operasional langsung."
+        ),
+    }
+
+
 # ---------- tool ridership ----------
 
 YEAR_RE = re.compile(r"\b(20\d{2})\b")

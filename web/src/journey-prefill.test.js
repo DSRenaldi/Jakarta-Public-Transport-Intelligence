@@ -12,7 +12,39 @@ test('tombol perjalanan hanya tersedia setelah kedua stop_id teresolusi', () => 
   }), null)
 
   const journey = { origin: { stop_id: 'KRL_depok' }, dest: brt, preference: 'tercepat' }
-  assert.equal(resolvedJourneyPrefill({ journey }), journey)
+  assert.deepEqual(resolvedJourneyPrefill({ journey }), {
+    ...journey,
+    points: [journey.origin, journey.dest],
+    waypoints: [],
+  })
+})
+
+test('prefill mempertahankan semua titik perjalanan berurutan', () => {
+  const depok = { stop_id: 'KRL_depok', name: 'Depok', mode: 'KRL' }
+  const tambun = { stop_id: 'KRL_tambun', name: 'Tambun', mode: 'KRL' }
+  const journey = { origin: depok, dest: tambun, points: [depok, brt, tambun], preference: 'min_transfers' }
+  const prefill = resolvedJourneyPrefill({ journey })
+  assert.deepEqual(prefill.points.map((point) => point.stop_id), ['KRL_depok', 'BRT_senayan', 'KRL_tambun'])
+  assert.deepEqual(prefill.waypoints, [brt])
+})
+
+test('prefill tidak membatasi rangkaian panjang atau titik yang berulang', () => {
+  const bekasi = { stop_id: 'KRL_bekasi', name: 'Bekasi Timur', mode: 'KRL' }
+  const tangerang = { stop_id: 'KRL_tangerang', name: 'Tangerang', mode: 'KRL' }
+  const depok = { stop_id: 'KRL_depok', name: 'Depok', mode: 'KRL' }
+  const journey = {
+    origin: bekasi,
+    dest: brt,
+    points: [bekasi, brt, tangerang, depok, brt],
+    preference: 'tercepat',
+  }
+  const prefill = resolvedJourneyPrefill({ journey })
+  assert.deepEqual(prefill.points.map((point) => point.stop_id), [
+    'KRL_bekasi', 'BRT_senayan', 'KRL_tangerang', 'KRL_depok', 'BRT_senayan',
+  ])
+  assert.deepEqual(prefill.waypoints.map((point) => point.stop_id), [
+    'BRT_senayan', 'KRL_tangerang', 'KRL_depok',
+  ])
 })
 
 test('prefill memilih stop_id hasil chatbot walaupun nama lintas moda sama', () => {

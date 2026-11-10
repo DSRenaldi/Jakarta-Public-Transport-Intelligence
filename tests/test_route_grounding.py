@@ -205,7 +205,7 @@ class RouteGroundingTests(unittest.TestCase):
                  "preference": "tercepat"},
                 "dari Tambun ke Senayan", None, [], "data-v1",
             )
-        self.assertTrue(keys[0].startswith("route-v3|data-v1|"))
+        self.assertTrue(keys[0].startswith("route-v5|data-v1|"))
 
     def test_resolved_journey_uses_canonical_stop_ids(self):
         journey = chat._resolved_journey(self.tool_out)
@@ -218,6 +218,119 @@ class RouteGroundingTests(unittest.TestCase):
             "status": "ambiguous", "candidates": {"dest": []},
         }}
         self.assertIsNone(chat._resolved_journey(ambiguous))
+
+    def test_multi_point_parser_preserves_ordered_destinations(self):
+        slots = chat._regex_slots(
+            "route_planning",
+            "dari Depok, saya ingin ke Senayan kemudian kembali lagi ke Tambun",
+        )
+        self.assertEqual(slots["points"], ["Depok", "Senayan", "Tambun"])
+        self.assertEqual(slots["origin"], "Depok")
+        self.assertEqual(slots["dest"], "Tambun")
+        self.assertEqual(
+            chat._route_points_from_text(
+                "tolong generate ulang rute Depok-Senayan-Tambun"),
+            ["Depok", "Senayan", "Tambun"],
+        )
+        long_slots = chat._regex_slots(
+            "route_planning",
+            "saya dari Bekasi Timur ingin ke Senayan, kemudian saya ingin "
+            "ke Tangerang, dan kemudian ke Depok, terakhir kembali ke Senayan",
+        )
+        self.assertEqual(
+            long_slots["points"],
+            ["Bekasi Timur", "Senayan", "Tangerang", "Depok", "Senayan"],
+        )
+        connector_cases = (
+            "dari A ke B lalu ke C",
+            "dari A ke B selanjutnya menuju C",
+            "dari A ke B setelah itu saya kembali ke C",
+            "dari A ke B habis itu ke C",
+            "dari A ke B berikutnya ke C",
+            "dari A ke B terus ke C",
+            "dari A ke B dan akhirnya kembali ke C",
+        )
+        for question in connector_cases:
+            with self.subTest(question=question):
+                self.assertEqual(
+                    chat._route_points_from_text(question), ["A", "B", "C"])
+
+    def test_repeated_ambiguous_point_reuses_same_canonical_choice(self):
+        def stop(stop_id, name, mode):
+            return {"stop_id": stop_id, "name": name, "mode": mode}
+
+        brt = stop("BRT_senayan", "Senayan", "BRT")
+        mrt = stop("MRT_senayan", "Senayan Mastercard", "MRT")
+        points = ["Bekasi Timur", "Senayan", "Tangerang", "Depok", "Senayan"]
+        pending = chat._new_pending_route(
+            {"points": points, "origin": points[0], "dest": points[-1]},
+            {
+                "status": "ambiguous",
+                "point_count": len(points),
+                "resolved": {
+                    "point_0": stop("KRL_bekasi", "Bekasi Timur", "KRL"),
+                    "point_2": stop("KRL_tangerang", "Tangerang", "KRL"),
+                    "point_3": stop("KRL_depok", "Depok", "KRL"),
+                },
+                "candidates": {
+                    "point_1": [mrt, brt],
+                    "point_4": [mrt, brt],
+                },
+            },
+        )
+
+        action = chat._continue_pending_route("2", pending)
+
+        self.assertEqual(action["kind"], "ready")
+        resolved_ids = [point["stop_id"] for point in action["slots"]["points"]]
+        self.assertEqual(resolved_ids, [
+            "KRL_bekasi", "BRT_senayan", "KRL_tangerang", "KRL_depok",
+            "BRT_senayan",
+        ])
+
+    def test_route_correction_inserts_omitted_point_generically(self):
+        origin = {"stop_id": "A", "name": "Depok", "mode": "KRL"}
+        dest = {"stop_id": "C", "name": "Tambun", "mode": "KRL"}
+        slots = chat._contextual_route_slots(
+            "anda melewatkan Senayan",
+            {"origin": origin, "dest": dest, "points": [origin, dest],
+             "preference": "tercepat"},
+        )
+        self.assertEqual(slots["points"], [origin, "Senayan", dest])
+
+        reopened = chat._contextual_route_slots(
+            "tampilkan rute itu di halaman perjalanan",
+            {"origin": origin, "dest": dest, "points": [origin, dest],
+             "preference": "min_transfers"},
+        )
+        self.assertEqual(reopened["points"], [origin, dest])
+        self.assertEqual(reopened["preference"], "min_transfers")
+
+    def test_multi_point_route_keeps_boundary_without_false_transfer(self):
+        net = Network()
+        for stop_id, name in (("A", "Depok"), ("B", "Senayan"),
+                              ("C", "Tambun")):
+            net.add_stop(Stop(stop_id, "KRL", name, -6.2, 106.8))
+        net.line_name = {"KRL_TEST": "KRL Lin Uji"}
+        net.line_display = dict(net.line_name)
+        net.add_edge("A", None, Edge(
+            "B", "KRL", 300, 60, 3000, "KRL", "KRL_TEST", "out"))
+        net.add_edge("B", None, Edge(
+            "C", "KRL", 400, 60, 3000, "KRL", "KRL_TEST", "out"))
+
+        result = tools.plan_journey_ids(net, ["A", "B", "C"],
+                                        "min_transfers")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([point["stop_id"] for point in result["points"]],
+                         ["A", "B", "C"])
+        self.assertEqual([leg["journey_leg"]
+                          for leg in result["itinerary"]], [1, 2])
+        self.assertEqual(result["route_metrics"]["service_change_count"], 0)
+        journey = chat._resolved_journey({"tool": "route",
+                                          "result": result})
+        self.assertEqual([point["stop_id"] for point in journey["points"]],
+                         ["A", "B", "C"])
 
     def test_exact_alias_across_modes_is_generic_for_both_endpoints(self):
         cases = (

@@ -105,7 +105,7 @@ function badgeStyle(mode) {
   return { background: `${color}16`, color, borderColor: `${color}35` }
 }
 
-function RouteLeg({ leg, index }) {
+function RouteLeg({ leg, index, showJourneyStart = false }) {
   const isRide = leg.type === 'ride'
   const color = isRide ? (MODE_COLORS[leg.mode] || '#0B1F33') : WALK_COLOR
   const passedStops = isRide ? (leg.passedStops || []) : (leg.via || [])
@@ -119,6 +119,9 @@ function RouteLeg({ leg, index }) {
     <li className={`seg seg-${leg.type}`}>
       <span className="seg-dot" style={{ '--leg-color': color }} aria-hidden />
       <article className="seg-body">
+        {showJourneyStart && leg.journey_leg && (
+          <div className="journey-leg-label">Perjalanan {leg.journey_leg}</div>
+        )}
         <div className="seg-head">
           <span className="seg-kind">
             {isRide ? (
@@ -246,6 +249,18 @@ function JourneyMap({ result }) {
                 <Tooltip direction="top" offset={[0, -6]}>Lewati &middot; {dispName(stop)}</Tooltip>
               </CircleMarker>
             ))}
+            {mapData.journeyWaypoints.map((stop, index) => (
+              <CircleMarker
+                key={`journey-waypoint-${stop.stop_id}`}
+                center={[stop.lat, stop.lon]}
+                radius={9}
+                pathOptions={{ color: '#fff', weight: 3, fillColor: '#E59A14', fillOpacity: 1 }}
+              >
+                <Tooltip permanent className="endpoint-map-label" direction="top" offset={[0, -10]}>
+                  Titik {index + 1} · {dispName(stop)}
+                </Tooltip>
+              </CircleMarker>
+            ))}
             {mapData.transfers.map((point) => (
               <Marker key={`${point.event}-${point.phase}-${point.stop.stop_id}`} position={[point.stop.lat, point.stop.lon]} icon={transferIcon(point)} zIndexOffset={700}>
                 <Tooltip
@@ -303,6 +318,7 @@ export default function Planner({ prefill, onPrefillConsumed }) {
   const [dest, setDest] = useState(null)
   const [originMode, setOriginMode] = useState(null)
   const [destMode, setDestMode] = useState(null)
+  const [viaPoints, setViaPoints] = useState([])
   const [prefer, setPrefer] = useState('tercepat')
   const [depTime, setDepTime] = useState('')
   const [result, setResult] = useState(null)
@@ -311,16 +327,19 @@ export default function Planner({ prefill, onPrefillConsumed }) {
   const lastReq = useRef(null)
   const routeLegs = useMemo(() => buildRouteDetailData(result), [result])
 
-  const run = async (nextOrigin = origin, nextDest = dest, nextPrefer = prefer, nextTime = depTime, nextOriginMode = originMode, nextDestMode = destMode) => {
+  const run = async (nextOrigin = origin, nextDest = dest, nextPrefer = prefer, nextTime = depTime, nextOriginMode = originMode, nextDestMode = destMode, nextViaPoints = viaPoints) => {
     if (!nextOrigin || !nextDest) return
     setBusy(true)
     setError(null)
-    lastReq.current = { origin: nextOrigin, dest: nextDest, prefer: nextPrefer, depTime: nextTime }
+    lastReq.current = { origin: nextOrigin, dest: nextDest, prefer: nextPrefer, depTime: nextTime, viaPoints: nextViaPoints }
     try {
       const response = await findRoute({
         origin: dispName(nextOrigin), dest: dispName(nextDest), prefer: nextPrefer,
         origin_id: nextOrigin.stop_id, dest_id: nextDest.stop_id,
         origin_mode: nextOriginMode, dest_mode: nextDestMode, dep_time: nextTime,
+        waypoints: nextViaPoints.map((point) => ({
+          name: dispName(point), stop_id: point.stop_id, mode: point.mode,
+        })),
       })
       setResult(response)
     } catch (requestError) {
@@ -335,25 +354,30 @@ export default function Planner({ prefill, onPrefillConsumed }) {
     const loadPrefill = async () => {
       setError(null)
       try {
-        const [originResponse, destResponse] = await Promise.all([
-          searchStops(prefillStopLabel(prefill.origin), prefill.origin?.mode, 7),
-          searchStops(prefillStopLabel(prefill.dest), prefill.dest?.mode, 7),
-        ])
+        const requestedPoints = prefill.points?.length ? prefill.points : [prefill.origin, prefill.dest]
+        const responses = await Promise.all(requestedPoints.map((point) => (
+          searchStops(prefillStopLabel(point), point?.mode, 7)
+        )))
         if (cancelled) return
-        const nextOrigin = pickPrefillCandidate(originResponse, prefill.origin)
-        const nextDest = pickPrefillCandidate(destResponse, prefill.dest)
-        if (!nextOrigin || !nextDest) {
+        const resolvedPoints = responses.map((response, index) => (
+          pickPrefillCandidate(response, requestedPoints[index])
+        ))
+        if (resolvedPoints.some((point) => !point)) {
           setError('Titik rute dari Asisten belum dapat dipetakan. Pilih ulang titik di halaman Perjalanan.')
           return
         }
+        const nextOrigin = resolvedPoints[0]
+        const nextDest = resolvedPoints.at(-1)
+        const nextViaPoints = resolvedPoints.slice(1, -1)
         const nextOriginMode = nextOrigin.mode || null
         const nextDestMode = nextDest.mode || null
         setOrigin(nextOrigin)
         setDest(nextDest)
+        setViaPoints(nextViaPoints)
         setOriginMode(nextOriginMode)
         setDestMode(nextDestMode)
         setPrefer(prefill.prefer || 'tercepat')
-        await run(nextOrigin, nextDest, prefill.prefer || 'tercepat', prefill.depTime || '', nextOriginMode, nextDestMode)
+        await run(nextOrigin, nextDest, prefill.prefer || 'tercepat', prefill.depTime || '', nextOriginMode, nextDestMode, nextViaPoints)
       } catch (requestError) {
         if (!cancelled) setError(requestError.message)
       } finally {
@@ -365,8 +389,10 @@ export default function Planner({ prefill, onPrefillConsumed }) {
   }, [prefill, onPrefillConsumed])
 
   const swap = () => {
-    setOrigin(dest); setDest(origin)
-    setOriginMode(destMode); setDestMode(originMode)
+    const reversed = [origin, ...viaPoints, dest].filter(Boolean).reverse()
+    setOrigin(reversed[0] || null); setDest(reversed.at(-1) || null)
+    setViaPoints(reversed.slice(1, -1))
+    setOriginMode(reversed[0]?.mode || destMode); setDestMode(reversed.at(-1)?.mode || originMode)
     setResult(null); setError(null)
   }
 
@@ -385,7 +411,7 @@ export default function Planner({ prefill, onPrefillConsumed }) {
     const request = lastReq.current
     if (!request) return
     run(nextOrigin || request.origin, nextDest || request.dest,
-      request.prefer, request.depTime, nextOriginMode, nextDestMode)
+      request.prefer, request.depTime, nextOriginMode, nextDestMode, request.viaPoints || [])
   }
 
   return (
@@ -394,10 +420,20 @@ export default function Planner({ prefill, onPrefillConsumed }) {
         <section className="journey-form-panel" aria-label="Form pencarian perjalanan">
           <div className="section-intro"><span className="section-kicker">Perjalanan baru</span><h2>Dari mana Anda berangkat?</h2><p>Pilih stasiun atau halte. Anda dapat membatasi hasil berdasarkan moda.</p></div>
           <div className="place-fields">
-            <StopInput label="Dari" stop={origin} onPick={setOrigin} mode={originMode} onModeChange={setOriginMode} placeholder="Manggarai, Lebak Bulus…" />
+            <StopInput label="Dari" stop={origin} onPick={(stop) => { setOrigin(stop); setViaPoints([]) }} mode={originMode} onModeChange={setOriginMode} placeholder="Manggarai, Lebak Bulus…" />
             <button className="swap-button" onClick={swap} disabled={!origin && !dest} aria-label="Tukar asal dan tujuan">⇅</button>
-            <StopInput label="Ke" stop={dest} onPick={setDest} mode={destMode} onModeChange={setDestMode} placeholder="Bogor, Dukuh Atas…" />
+            <StopInput label="Ke" stop={dest} onPick={(stop) => { setDest(stop); setViaPoints([]) }} mode={destMode} onModeChange={setDestMode} placeholder="Bogor, Dukuh Atas…" />
           </div>
+          {viaPoints.length > 0 && (
+            <div className="journey-via-list" aria-label="Titik antara perjalanan">
+              <span className="field-label">Lewat secara berurutan</span>
+              {viaPoints.map((point, index) => (
+                <span className="journey-via-chip" key={point.stop_id}>
+                  <b>{index + 1}</b><span className="mode-badge" style={badgeStyle(point.mode)}>{point.mode}</span>{dispName(point)}
+                </span>
+              ))}
+            </div>
+          )}
 
           <fieldset className="preference-fieldset">
             <legend>Prioritas perjalanan</legend>
@@ -421,7 +457,7 @@ export default function Planner({ prefill, onPrefillConsumed }) {
       {result?.status === 'ok' && (
         <section className="journey-result card">
           <div className="result-heading">
-            <div><span className="section-kicker">Pilihan {result.preference}</span><h2>{dispName(result.origin)} <span aria-hidden>→</span> {dispName(result.dest)}</h2></div>
+            <div><span className="section-kicker">Pilihan {result.preference}</span><h2>{(result.points || [result.origin, result.dest]).map((point) => dispName(point)).join(' → ')}</h2></div>
             <span className="label-pill proxy">Waktu proksi</span>
           </div>
           <div className="route-metrics">
@@ -435,6 +471,7 @@ export default function Planner({ prefill, onPrefillConsumed }) {
                 key={`${result.origin.stop_id}-${result.dest.stop_id}-${leg.type}-${leg.from.stop_id}-${leg.to.stop_id}-${index}`}
                 leg={leg}
                 index={index}
+                showJourneyStart={Boolean(leg.journey_leg) && (index === 0 || routeLegs[index - 1]?.journey_leg !== leg.journey_leg)}
               />
             ))}
           </ol>

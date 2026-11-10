@@ -1,7 +1,9 @@
 export function resolvedJourneyPrefill(message) {
   const journey = message?.journey
   if (!journey?.origin?.stop_id || !journey?.dest?.stop_id) return null
-  return journey
+  const points = journey.points?.length ? journey.points : [journey.origin, journey.dest]
+  if (points.length < 2 || points.some((point) => !point?.stop_id)) return null
+  return { ...journey, points, waypoints: points.slice(1, -1) }
 }
 
 export function prefillStopLabel(stop) {
